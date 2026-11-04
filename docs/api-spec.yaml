@@ -1,0 +1,5450 @@
+openapi: 3.0.3
+info:
+  title: VertexLearn AI planned API
+  version: 1.0.0
+  description: PRD §8 baseline routes and proposed extensions. x-prd identifies baseline operations.
+servers:
+- url: /api/v1
+security:
+- bearerAuth: []
+paths:
+  /auth/register:
+    post:
+      summary: 'Register a new user (default role: student)'
+      operationId: post_auth_register
+      x-prd: '8.1'
+      description: Public approved catalog metadata or public auth. Auth rate bucket applies.
+      security: []
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                full_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 150
+                email:
+                  type: string
+                  format: email
+                  maxLength: 180
+                password:
+                  type: string
+                  format: password
+                  minLength: 12
+                  maxLength: 128
+              required:
+              - full_name
+              - email
+              - password
+  /auth/login:
+    post:
+      summary: Returns access + refresh token
+      operationId: post_auth_login
+      x-prd: '8.1'
+      description: Public approved catalog metadata or public auth. Auth rate bucket applies.
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tokens'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 180
+                password:
+                  type: string
+                  format: password
+                  minLength: 12
+                  maxLength: 128
+              required:
+              - email
+              - password
+  /auth/refresh:
+    post:
+      summary: Issues a new access token
+      operationId: post_auth_refresh
+      x-prd: '8.1'
+      description: Valid refresh JWT required in request body. Logout permits replay. Auth rate bucket
+        applies.
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tokens'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                refresh_token:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - refresh_token
+  /auth/logout:
+    post:
+      summary: Invalidates refresh token
+      operationId: post_auth_logout
+      x-prd: '8.1'
+      description: Valid refresh JWT required in request body. Logout permits replay. Auth rate bucket
+        applies.
+      security: []
+      responses:
+        '204':
+          description: Completed
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                refresh_token:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - refresh_token
+  /auth/me:
+    get:
+      summary: Returns current authenticated user profile
+      operationId: get_auth_me
+      x-prd: '8.1'
+      description: Active authenticated account. Auth rate bucket applies.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /courses:
+    get:
+      summary: List/filter/search catalog (category, difficulty, q, page)
+      operationId: get_courses
+      x-prd: '8.2'
+      description: Public approved catalog metadata or public auth.
+      security: []
+      parameters:
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      - name: difficulty
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Mode'
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      - name: rating_min
+        in: query
+        required: false
+        schema:
+          type: number
+          minimum: 0
+          maximum: 5
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Course'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    post:
+      summary: Create a course (status defaults to pending)
+      operationId: post_courses
+      x-prd: '8.2'
+      description: Instructor or admin. Instructor listing restricted to owned courses. Retry with the
+        same key and equivalent payload.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+                category:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                difficulty:
+                  $ref: '#/components/schemas/Mode'
+                thumbnail_url:
+                  type: string
+                  format: uri
+                price:
+                  type: number
+                  minimum: 0
+                  multipleOf: 0.01
+                pricing_tier:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - title
+              - category
+              - difficulty
+              - price
+              - pricing_tier
+  /courses/{id}:
+    get:
+      summary: Course detail with modules/lectures
+      operationId: get_courses_id
+      x-prd: '8.2'
+      description: Public approved catalog metadata or public auth.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseDetail'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    put:
+      summary: Update course metadata
+      operationId: put_courses_id
+      x-prd: '8.2'
+      description: Instructor owning the resolved course or admin. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+                category:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                difficulty:
+                  $ref: '#/components/schemas/Mode'
+                thumbnail_url:
+                  type: string
+                  format: uri
+                price:
+                  type: number
+                  minimum: 0
+                  multipleOf: 0.01
+                pricing_tier:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+    delete:
+      summary: delete courses id
+      operationId: delete_courses_id
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '204':
+          description: Completed
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /courses/{id}/modules:
+    post:
+      summary: Add module
+      operationId: post_courses_id_modules
+      x-prd: '8.2'
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Module'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                order_index:
+                  type: integer
+                  minimum: 0
+              required:
+              - title
+              - order_index
+  /modules/{id}/lectures:
+    post:
+      summary: Add lecture (multipart upload)
+      operationId: post_modules_id_lectures
+      x-prd: '8.2'
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                order_index:
+                  type: integer
+                  minimum: 0
+                video:
+                  type: string
+                  format: binary
+                captions:
+                  type: string
+                  format: binary
+                  description: Optional English WebVTT captions for the uploaded video.
+                resources:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+              required:
+              - title
+              - order_index
+  /courses/{id}/approve:
+    post:
+      summary: Approve/reject course
+      operationId: post_courses_id_approve
+      x-prd: '8.2'
+      description: Active admin. Retry with the same key and equivalent payload. Stale revisions return
+        409. The course must have a submitted revision.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                decision:
+                  $ref: '#/components/schemas/Decision'
+                comment:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - decision
+  /courses/{id}/enroll:
+    post:
+      summary: Enroll current student
+      operationId: post_courses_id_enroll
+      x-prd: '8.3'
+      description: Active student for own resources.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enrollment'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /enrollments/me:
+    get:
+      summary: List my enrolled courses with progress
+      operationId: get_enrollments_me
+      x-prd: '8.3'
+      description: Active student for own resources.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Enrollment'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /lectures/{id}/progress:
+    post:
+      summary: Update watched-seconds / mark complete
+      operationId: post_lectures_id_progress
+      x-prd: '8.3'
+      description: Active student enrolled in the resolved course.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Progress'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                position_seconds:
+                  type: integer
+                  minimum: 0
+                event_id:
+                  type: string
+                  format: uuid
+                playback_id:
+                  type: string
+                  format: uuid
+                sequence:
+                  type: integer
+                  minimum: 0
+                played_ranges:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Range'
+              required:
+              - position_seconds
+              - event_id
+              - playback_id
+              - sequence
+              - played_ranges
+    get:
+      summary: get lectures id progress
+      operationId: get_lectures_id_progress
+      x-prd: Proposed
+      description: Active student enrolled in the resolved course.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Progress'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /lectures/{id}/notes:
+    post:
+      summary: Add a note
+      operationId: post_lectures_id_notes
+      x-prd: '8.3'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                timestamp_seconds:
+                  type: integer
+                  minimum: 0
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - timestamp_seconds
+              - content
+    get:
+      summary: get lectures id notes
+      operationId: get_lectures_id_notes
+      x-prd: Proposed
+      description: Active student enrolled in the resolved course.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Note'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /lectures/{id}/bookmarks:
+    post:
+      summary: Add a bookmark
+      operationId: post_lectures_id_bookmarks
+      x-prd: '8.3'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bookmark'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                timestamp_seconds:
+                  type: integer
+                  minimum: 0
+              required:
+              - timestamp_seconds
+    get:
+      summary: get lectures id bookmarks
+      operationId: get_lectures_id_bookmarks
+      x-prd: Proposed
+      description: Active student enrolled in the resolved course.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bookmark'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /assignments:
+    post:
+      summary: Create assignment (instructor)
+      operationId: post_assignments
+      x-prd: '8.4'
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignment'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                course_id:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                instructions:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+                rubric:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Criterion'
+                due_date:
+                  type: string
+                  format: date-time
+              required:
+              - course_id
+              - title
+              - instructions
+              - rubric
+              - due_date
+  /assignments/{id}/submit:
+    post:
+      summary: Submit file (student)
+      operationId: post_assignments_id_submit
+      x-prd: '8.4'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload. Multipart PDF, ZIP or allowlisted code. A response is successful only after safe validation
+        and deadline acceptance.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '413':
+          $ref: '#/components/responses/Error413'
+        '415':
+          $ref: '#/components/responses/Error415'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required:
+              - file
+  /submissions/{id}/grade:
+    put:
+      summary: Grade a submission (instructor)
+      operationId: put_submissions_id_grade
+      x-prd: '8.4'
+      description: Instructor owning the resolved course or admin. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                scores:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RubricScore'
+                feedback:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - scores
+  /quizzes:
+    post:
+      summary: Create quiz manually (instructor)
+      operationId: post_quizzes
+      x-prd: '8.4'
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quiz'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                module_id:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                questions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/QuestionInput'
+              required:
+              - module_id
+              - title
+              - questions
+  /quizzes/{id}/attempt:
+    post:
+      summary: Start an attempt (student)
+      operationId: post_quizzes_id_attempt
+      x-prd: '8.4'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attempt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /attempts/{id}/submit:
+    post:
+      summary: Submit answers, receive auto-graded score
+      operationId: post_attempts_id_submit
+      x-prd: '8.4'
+      description: Active resource owner with enrollment where course-scoped. Retry with the same key
+        and equivalent payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attempt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                answers:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AnswerInput'
+              required:
+              - answers
+  /ai/chat/sessions:
+    post:
+      summary: Start a chat session scoped to a course
+      operationId: post_ai_chat_sessions
+      x-prd: '8.5'
+      description: Enrolled student or owning instructor reviewer, with session ownership on existing
+        sessions. AI chat bucket applies. Retry with the same key and equivalent payload.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                course_id:
+                  type: string
+                  format: uuid
+                mode:
+                  $ref: '#/components/schemas/Mode'
+              required:
+              - course_id
+  /ai/chat/sessions/{id}/messages:
+    post:
+      summary: Send a message, get RAG-grounded AI reply
+      operationId: post_ai_chat_sessions_id_messages
+      x-prd: '8.5'
+      description: Enrolled student or owning instructor reviewer, with session ownership on existing
+        sessions. AI chat bucket applies. Retry with the same key and equivalent payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatReply'
+              example:
+                reply: Because the pivot chosen (commonly the first or last element)...
+                sources:
+                - lecture_id: 00000000-0000-4000-8000-000000000842
+                  lecture_title: Sorting Algorithms - Part 2
+                  timestamp_seconds: 842
+                mode: intermediate
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+              required:
+              - message
+            example:
+              message: Why does quicksort degrade to O(n^2) on sorted input?
+    get:
+      summary: get ai chat sessions id messages
+      operationId: get_ai_chat_sessions_id_messages
+      x-prd: Proposed
+      description: Enrolled student or owning instructor reviewer, with session ownership on existing
+        sessions. AI chat bucket applies.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatMessage'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /ai/lectures/{id}/summarize:
+    post:
+      summary: Generate a lecture summary
+      operationId: post_ai_lectures_id_summarize
+      x-prd: '8.5'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Summary'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /ai/lectures/{id}/generate-quiz:
+    post:
+      summary: Auto-generate a quiz draft from transcript
+      operationId: post_ai_lectures_id_generate_quiz
+      x-prd: '8.5'
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '202':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                question_count:
+                  type: integer
+                  minimum: 5
+                  maximum: 10
+  /ai/modules/{id}/flashcards:
+    post:
+      summary: Generate flashcards for a module
+      operationId: post_ai_modules_id_flashcards
+      x-prd: '8.5'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Flashcard'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /ai/study-plan:
+    post:
+      summary: Generate a personalized study plan from quiz history
+      operationId: post_ai_study_plan
+      x-prd: '8.5'
+      description: Active student enrolled in the resolved course. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudyPlan'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                course_id:
+                  type: string
+                  format: uuid
+              required:
+              - course_id
+  /ai/chat/sessions/{id}/mode:
+    put:
+      summary: Switch explanation mode (beginner/intermediate/advanced)
+      operationId: put_ai_chat_sessions_id_mode
+      x-prd: '8.5'
+      description: Enrolled student or owning instructor reviewer, with session ownership on existing
+        sessions. AI chat bucket applies.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                mode:
+                  $ref: '#/components/schemas/Mode'
+              required:
+              - mode
+  /recommendations/me:
+    get:
+      summary: Personalized course/topic suggestions
+      operationId: get_recommendations_me
+      x-prd: '8.6'
+      description: Active student for own resources.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recommendation'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /users/me/badges:
+    get:
+      summary: Earned badges
+      operationId: get_users_me_badges
+      x-prd: '8.6'
+      description: Active student for own resources.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Badge'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /users/me/streak:
+    get:
+      summary: Current and longest streak
+      operationId: get_users_me_streak
+      x-prd: '8.6'
+      description: Active student for own resources.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Streak'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /leaderboard/{courseId}:
+    get:
+      summary: Course leaderboard by quiz score/engagement
+      operationId: get_leaderboard_courseId
+      x-prd: '8.6'
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: courseId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course identifier
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Leader'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /admin/users:
+    get:
+      summary: List/search all users
+      operationId: get_admin_users
+      x-prd: '8.7'
+      description: Active admin.
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Profile'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /admin/users/{id}/role:
+    put:
+      summary: Assign/revoke role
+      operationId: put_admin_users_id_role
+      x-prd: '8.7'
+      description: Active admin. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                role:
+                  $ref: '#/components/schemas/Role'
+                action:
+                  $ref: '#/components/schemas/RoleAction'
+              required:
+              - role
+              - action
+  /admin/users/{id}/suspend:
+    put:
+      summary: Suspend account
+      operationId: put_admin_users_id_suspend
+      x-prd: '8.7'
+      description: Active admin. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                suspended:
+                  type: boolean
+              required:
+              - suspended
+  /admin/courses/pending:
+    get:
+      summary: Approval queue
+      operationId: get_admin_courses_pending
+      x-prd: '8.7'
+      description: Active admin.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Course'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /admin/analytics/overview:
+    get:
+      summary: Platform-wide metrics
+      operationId: get_admin_analytics_overview
+      x-prd: '8.7'
+      description: Active admin.
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformMetrics'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /admin/moderation/flagged-posts:
+    get:
+      summary: Reported forum content
+      operationId: get_admin_moderation_flagged_posts
+      x-prd: '8.7'
+      description: Active admin.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Post'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /courses/{id}/submit:
+    post:
+      summary: post courses id submit
+      operationId: post_courses_id_submit
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /instructor/courses:
+    get:
+      summary: get instructor courses
+      operationId: get_instructor_courses
+      x-prd: Proposed
+      description: Instructor or admin. Instructor listing restricted to owned courses.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Course'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /instructor/courses/{id}:
+    get:
+      summary: get instructor courses id
+      operationId: get_instructor_courses_id
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseDetail'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /lectures/{id}/playback:
+    get:
+      summary: get lectures id playback
+      operationId: get_lectures_id_playback
+      x-prd: Proposed
+      description: Active student enrolled in the resolved course. Returns an expiring playlist URL whose
+        segment requests carry independent signature or scoped CDN authorization.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackLink'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /lectures/{id}/resources/{resourceId}:
+    get:
+      summary: get lectures id resources resourceId
+      operationId: get_lectures_id_resources_resourceId
+      x-prd: Proposed
+      description: Active student enrolled in the resolved course.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: resourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource belonging to the specified lecture
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileLink'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /courses/{id}/assignments:
+    get:
+      summary: get courses id assignments
+      operationId: get_courses_id_assignments
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Assignment'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /assignments/{id}/submissions:
+    get:
+      summary: get assignments id submissions
+      operationId: get_assignments_id_submissions
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Submission'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /submissions/{id}/file:
+    get:
+      summary: get submissions id file
+      operationId: get_submissions_id_file
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileLink'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /modules/{id}/quizzes:
+    get:
+      summary: get modules id quizzes
+      operationId: get_modules_id_quizzes
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quiz'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /quizzes/{id}/review:
+    get:
+      summary: get quizzes id review
+      operationId: get_quizzes_id_review
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizReview'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    post:
+      summary: post quizzes id review
+      operationId: post_quizzes_id_review
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quiz'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                decision:
+                  $ref: '#/components/schemas/Decision'
+                comment:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - decision
+  /quizzes/{id}:
+    put:
+      summary: put quizzes id
+      operationId: put_quizzes_id
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quiz'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                questions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/QuestionInput'
+              required:
+              - title
+              - questions
+  /quizzes/{id}/attempts:
+    get:
+      summary: List own attempts or pending short-answer reviews for an authored quiz
+      operationId: get_quizzes_id_attempts
+      description: Active enrolled students see their own attempts. The owning instructor or admin sees pending manual review.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Scoped attempt summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, page, limit, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Attempt'
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  total:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /attempts/{id}:
+    get:
+      summary: get attempts id
+      operationId: get_attempts_id
+      x-prd: Proposed
+      description: Active resource owner with enrollment where course-scoped.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attempt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /attempts/{id}/grade:
+    put:
+      summary: put attempts id grade
+      operationId: put_attempts_id_grade
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin. Stale revisions return 409.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Current resource revision ETag.
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attempt'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                scores:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AnswerScore'
+              required:
+              - scores
+  /users/me/certificates:
+    get:
+      summary: get users me certificates
+      operationId: get_users_me_certificates
+      x-prd: Proposed
+      description: Active student for own resources.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Certificate'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /certificates/{id}/download:
+    get:
+      summary: get certificates id download
+      operationId: get_certificates_id_download
+      x-prd: Proposed
+      description: Active resource owner with enrollment where course-scoped.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileLink'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /ai/jobs/{id}:
+    get:
+      summary: get ai jobs id
+      operationId: get_ai_jobs_id
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /instructor/courses/{id}/analytics:
+    get:
+      summary: get instructor courses id analytics
+      operationId: get_instructor_courses_id_analytics
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstructorMetrics'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /admin/users/{id}:
+    delete:
+      summary: delete admin users id
+      operationId: delete_admin_users_id
+      x-prd: Proposed
+      description: Active admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '204':
+          description: Completed
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /courses/{id}/threads:
+    get:
+      summary: get courses id threads
+      operationId: get_courses_id_threads
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Thread'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    post:
+      summary: post courses id threads
+      operationId: post_courses_id_threads
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student. Retry with the same key and equivalent payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Thread'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - title
+              - content
+  /threads/{id}/posts:
+    get:
+      summary: get threads id posts
+      operationId: get_threads_id_posts
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Post'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    post:
+      summary: post threads id posts
+      operationId: post_threads_id_posts
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student. Retry with the same key and equivalent payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+                parent_id:
+                  type: string
+                  format: uuid
+              required:
+              - content
+  /posts/{id}/report:
+    post:
+      summary: post posts id report
+      operationId: post_posts_id_report
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student. Retry with the same key and equivalent payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - reason
+  /posts/{id}/moderation:
+    put:
+      summary: put posts id moderation
+      operationId: put_posts_id_moderation
+      x-prd: Proposed
+      description: Owning instructor or admin.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Current resource revision where applicable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                decision:
+                  $ref: '#/components/schemas/Moderation'
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - decision
+              - reason
+  /courses/{id}/announcements:
+    get:
+      summary: get courses id announcements
+      operationId: get_courses_id_announcements
+      x-prd: Proposed
+      description: Enrolled student, owning instructor or admin. Submissions are filtered to self for
+        student.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Announcement'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+    post:
+      summary: post courses id announcements
+      operationId: post_courses_id_announcements
+      x-prd: Proposed
+      description: Instructor owning the resolved course or admin. Retry with the same key and equivalent
+        payload.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 12000
+              required:
+              - content
+  /notifications/me:
+    get:
+      summary: get notifications me
+      operationId: get_notifications_me
+      x-prd: Proposed
+      description: Active authenticated account.
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - page
+                - limit
+                - total
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  page:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 0
+                  total:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+  /notifications/{id}/read:
+    put:
+      summary: put notifications id read
+      operationId: put_notifications_id_read
+      x-prd: Proposed
+      description: Active resource owner with enrollment where course-scoped.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Course or resource identifier resolved in the route context
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+        '429':
+          $ref: '#/components/responses/Error429'
+        '503':
+          $ref: '#/components/responses/Error503'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Mode:
+      type: string
+      enum:
+      - beginner
+      - intermediate
+      - advanced
+    Role:
+      type: string
+      enum:
+      - student
+      - instructor
+      - admin
+    RoleAction:
+      type: string
+      enum:
+      - assign
+      - revoke
+    Decision:
+      type: string
+      enum:
+      - approved
+      - rejected
+    CourseStatus:
+      type: string
+      enum:
+      - pending
+      - approved
+      - rejected
+      - archived
+    QuizStatus:
+      type: string
+      enum:
+      - draft
+      - approved
+      - rejected
+      - retired
+    QuestionType:
+      type: string
+      enum:
+      - mcq
+      - multi_select
+      - short_answer
+    AttemptStatus:
+      type: string
+      enum:
+      - in_progress
+      - pending_review
+      - graded
+    JobStatus:
+      type: string
+      enum:
+      - pending
+      - running
+      - ready
+      - failed
+    Moderation:
+      type: string
+      enum:
+      - hide
+      - restore
+      - dismiss
+    Profile:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          maxLength: 180
+        role:
+          $ref: '#/components/schemas/Role'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        is_active:
+          type: boolean
+        revision:
+          type: string
+          description: Opaque ETag value to send in If-Match.
+      required:
+      - id
+      - full_name
+      - role
+      - roles
+      - is_active
+      - revision
+    Tokens:
+      type: object
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        refresh_token:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        user:
+          $ref: '#/components/schemas/Profile'
+      required:
+      - access_token
+      - refresh_token
+      - user
+    Course:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        instructor_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        category:
+          type: string
+          minLength: 1
+          maxLength: 80
+        difficulty:
+          $ref: '#/components/schemas/Mode'
+        thumbnail_url:
+          type: string
+          format: uri
+        price:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+        pricing_tier:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        status:
+          $ref: '#/components/schemas/CourseStatus'
+        rating:
+          type: number
+          minimum: 0
+          maximum: 5
+        revision:
+          type: string
+          description: Opaque ETag value to send in If-Match.
+      required:
+      - id
+      - instructor_id
+      - title
+      - category
+      - difficulty
+      - price
+      - pricing_tier
+      - status
+      - revision
+    CourseDetail:
+      type: object
+      additionalProperties: false
+      properties:
+        course:
+          $ref: '#/components/schemas/Course'
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/Module'
+      required:
+      - course
+      - modules
+    Module:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        order_index:
+          type: integer
+          minimum: 0
+        lectures:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lecture'
+      required:
+      - id
+      - course_id
+      - title
+      - order_index
+    Lecture:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        module_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        order_index:
+          type: integer
+          minimum: 0
+        duration_seconds:
+          type: integer
+          minimum: 0
+        media_status:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+      required:
+      - id
+      - module_id
+      - title
+      - order_index
+      - media_status
+    Resource:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - id
+      - title
+    Enrollment:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        enrolled_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - course_id
+      - progress_percent
+      - enrolled_at
+    Range:
+      type: object
+      additionalProperties: false
+      properties:
+        start_seconds:
+          type: integer
+          minimum: 0
+        end_seconds:
+          type: integer
+          minimum: 0
+      required:
+      - start_seconds
+      - end_seconds
+    Progress:
+      type: object
+      additionalProperties: false
+      properties:
+        position_seconds:
+          type: integer
+          minimum: 0
+        watched_seconds:
+          type: integer
+          minimum: 0
+        completed:
+          type: boolean
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        last_watched_at:
+          type: string
+          format: date-time
+      required:
+      - position_seconds
+      - watched_seconds
+      - completed
+      - progress_percent
+    Note:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        lecture_id:
+          type: string
+          format: uuid
+        timestamp_seconds:
+          type: integer
+          minimum: 0
+        content:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - id
+      - lecture_id
+      - timestamp_seconds
+      - content
+    Bookmark:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        lecture_id:
+          type: string
+          format: uuid
+        timestamp_seconds:
+          type: integer
+          minimum: 0
+      required:
+      - id
+      - lecture_id
+      - timestamp_seconds
+    Criterion:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        max_points:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+      required:
+      - id
+      - label
+      - max_points
+    RubricScore:
+      type: object
+      additionalProperties: false
+      properties:
+        criterion_id:
+          type: string
+          format: uuid
+        points:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+      required:
+      - criterion_id
+      - points
+    Assignment:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        instructions:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        rubric:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+        due_date:
+          type: string
+          format: date-time
+      required:
+      - id
+      - course_id
+      - title
+      - instructions
+      - rubric
+      - due_date
+    Submission:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        assignment_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        submitted_at:
+          type: string
+          format: date-time
+        grade:
+          type: number
+          minimum: 0
+          maximum: 100
+        feedback:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        revision:
+          type: string
+          description: Opaque ETag value to send in If-Match.
+      required:
+      - id
+      - assignment_id
+      - user_id
+      - submitted_at
+      - revision
+    OptionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        option_text:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        is_correct:
+          type: boolean
+      required:
+      - option_text
+      - is_correct
+    Option:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        option_text:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - id
+      - option_text
+    QuestionInput:
+      type: object
+      additionalProperties: false
+      properties:
+        question_text:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        question_type:
+          $ref: '#/components/schemas/QuestionType'
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionInput'
+        rubric:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        topic_id:
+          type: string
+          format: uuid
+        difficulty:
+          $ref: '#/components/schemas/Mode'
+        max_points:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+      required:
+      - question_text
+      - question_type
+      - max_points
+    Question:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        question_text:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        question_type:
+          $ref: '#/components/schemas/QuestionType'
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/Option'
+        max_points:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+      required:
+      - id
+      - question_text
+      - question_type
+      - max_points
+    Quiz:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        module_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/QuizStatus'
+        is_ai_generated:
+          type: boolean
+        revision:
+          type: string
+          description: Opaque ETag value to send in If-Match.
+      required:
+      - id
+      - module_id
+      - title
+      - status
+      - is_ai_generated
+      - revision
+    QuizReview:
+      type: object
+      additionalProperties: false
+      properties:
+        quiz:
+          $ref: '#/components/schemas/Quiz'
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionInput'
+        generated_from_lecture_id:
+          type: string
+          format: uuid
+      required:
+      - quiz
+      - questions
+    AnswerInput:
+      type: object
+      additionalProperties: false
+      properties:
+        question_id:
+          type: string
+          format: uuid
+        selected_option_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        text_answer:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - question_id
+    AnswerScore:
+      type: object
+      additionalProperties: false
+      properties:
+        question_id:
+          type: string
+          format: uuid
+        points:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+      required:
+      - question_id
+      - points
+    Attempt:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        quiz_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AttemptStatus'
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+        review:
+          description: Present only for the course author or administrator on the review queue.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [question_id, question_text, rubric, max_points]
+            properties:
+              question_id:
+                type: string
+                format: uuid
+              question_text:
+                type: string
+              rubric:
+                type: string
+              max_points:
+                type: number
+              text_answer:
+                type: string
+        objective_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        submitted_at:
+          type: string
+          format: date-time
+        revision:
+          type: string
+          description: Opaque ETag value to send in If-Match.
+      required:
+      - id
+      - quiz_id
+      - status
+      - revision
+    Session:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        mode:
+          $ref: '#/components/schemas/Mode'
+      required:
+      - id
+      - course_id
+      - mode
+    Source:
+      type: object
+      additionalProperties: false
+      properties:
+        lecture_id:
+          type: string
+          format: uuid
+        lecture_title:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        timestamp_seconds:
+          type: integer
+          minimum: 0
+      required:
+      - lecture_id
+      - lecture_title
+    ChatReply:
+      type: object
+      additionalProperties: false
+      properties:
+        reply:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+          maxItems: 6
+        mode:
+          $ref: '#/components/schemas/Mode'
+      required:
+      - reply
+      - sources
+      - mode
+      description: Successful grounded reply or insufficient-evidence fallback with an empty sources array.
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        sender:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        content:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - sender
+      - content
+      - sources
+      - created_at
+    Summary:
+      type: object
+      additionalProperties: false
+      properties:
+        points:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 12000
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+      required:
+      - points
+      - sources
+    Job:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        quiz_id:
+          type: string
+          format: uuid
+        error_code:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - id
+      - status
+    Flashcard:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        question:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        answer:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+      required:
+      - id
+      - question
+      - answer
+      - sources
+    StudyStep:
+      type: object
+      additionalProperties: false
+      properties:
+        topic_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        lecture_id:
+          type: string
+          format: uuid
+      required:
+      - topic_id
+      - action
+    StudyPlan:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudyStep'
+      required:
+      - id
+      - course_id
+      - steps
+    Recommendation:
+      type: object
+      additionalProperties: false
+      properties:
+        course_id:
+          type: string
+          format: uuid
+        topic_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+      required:
+      - course_id
+      - reason
+      - score
+    Badge:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        description:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        earned_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+      - description
+      - earned_at
+    Streak:
+      type: object
+      additionalProperties: false
+      properties:
+        current_streak:
+          type: integer
+          minimum: 0
+        longest_streak:
+          type: integer
+          minimum: 0
+        last_active_date:
+          type: string
+          format: date
+      required:
+      - current_streak
+      - longest_streak
+    Leader:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        rank:
+          type: integer
+          minimum: 0
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+      required:
+      - display_name
+      - rank
+      - score
+    FileLink:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - url
+      - expires_at
+    PlaybackLink:
+      type: object
+      additionalProperties: false
+      required: [url, expires_at, playback_id]
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        playback_id:
+          type: string
+          format: uuid
+          description: Playback session identifier used in lecture progress events.
+        captions_url:
+          type: string
+          format: uri
+    Certificate:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        issued_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - course_id
+      - status
+    PlatformMetrics:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        dau:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailyActive'
+        enrollments:
+          type: integer
+          minimum: 0
+        completion_rate:
+          type: number
+          minimum: 0
+          maximum: 100
+        revenue:
+          type: number
+          minimum: 0
+          multipleOf: 0.01
+        currency:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        revenue_source:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - from
+      - to
+      - dau
+      - enrollments
+      - revenue
+      - currency
+      - revenue_source
+    DailyActive:
+      type: object
+      additionalProperties: false
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+          minimum: 0
+      required:
+      - date
+      - count
+    InstructorMetrics:
+      type: object
+      additionalProperties: false
+      properties:
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        lectures:
+          type: array
+          items:
+            $ref: '#/components/schemas/LectureMetrics'
+        average_quiz_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        time_on_task_seconds:
+          type: integer
+          minimum: 0
+      required:
+      - from
+      - to
+      - lectures
+      - time_on_task_seconds
+    LectureMetrics:
+      type: object
+      additionalProperties: false
+      properties:
+        lecture_id:
+          type: string
+          format: uuid
+        started:
+          type: integer
+          minimum: 0
+        completed:
+          type: integer
+          minimum: 0
+        drop_off:
+          type: number
+          minimum: 0
+          maximum: 100
+        time_on_task_seconds:
+          type: integer
+          minimum: 0
+      required:
+      - lecture_id
+      - started
+      - completed
+      - time_on_task_seconds
+    Thread:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - course_id
+      - title
+      - created_at
+    Post:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        parent_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        visibility:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        created_at:
+          type: string
+          format: date-time
+        revision:
+          type: string
+          description: Opaque ETag value to send in If-Match.
+      required:
+      - id
+      - thread_id
+      - content
+      - visibility
+      - created_at
+      - revision
+    Report:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        post_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          minLength: 1
+          maxLength: 12000
+      required:
+      - id
+      - post_id
+      - status
+    Announcement:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - course_id
+      - content
+      - created_at
+    Notification:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        body:
+          type: string
+          minLength: 1
+          maxLength: 12000
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - title
+      - body
+      - is_read
+      - created_at
+    ErrorEnvelope:
+      type: object
+      required:
+      - error
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              minLength: 1
+              maxLength: 12000
+            message:
+              type: string
+              minLength: 1
+              maxLength: 12000
+            field:
+              type: string
+              minLength: 1
+              maxLength: 12000
+          required:
+          - code
+          - message
+  responses:
+    Error400:
+      description: Malformed request or validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: email must be a valid email address
+              field: email
+    Error401:
+      description: Missing, expired or revoked credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error403:
+      description: Role or enrollment denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error404:
+      description: Resource absent or outside visible scope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error409:
+      description: State, version or idempotency conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error413:
+      description: Upload too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error415:
+      description: Unsupported upload type
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error422:
+      description: Well-formed request violates a domain rule
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error429:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 0
+          description: Seconds before retry, when known.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Error503:
+      description: Dependency unavailable
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 0
+          description: Seconds before retry, when known.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'

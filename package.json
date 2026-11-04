@@ -1,0 +1,54 @@
+{
+  "name": "vertexlearn-ai",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev:api": "node --env-file-if-exists=.env backend/src/server.ts",
+    "dev:web": "vite frontend",
+    "build": "vite build frontend",
+    "typecheck": "tsc -p backend/tsconfig.json && tsc -p frontend/tsconfig.json",
+    "db:migrate": "node --env-file-if-exists=.env backend/src/db/migrate.ts",
+    "db:seed": "node --env-file-if-exists=.env backend/src/db/seed.ts",
+    "demo:approve": "node --env-file-if-exists=.env backend/src/db/approve-demo-course.ts",
+    "test": "node --env-file-if-exists=.env --test backend/test/*.test.js",
+    "test:e2e": "node --env-file-if-exists=.env node_modules/@playwright/test/cli.js test"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "1.1.0",
+    "@ffprobe-installer/ffprobe": "2.1.2",
+    "argon2": "0.44.0",
+    "express": "5.3.0",
+    "helmet": "8.3.0",
+    "hls.js": "1.7.4",
+    "jsonwebtoken": "9.0.3",
+    "multer": "2.5.0",
+    "pdf-lib": "1.17.1",
+    "pg": "8.23.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "7.18.5",
+    "redis": "5.12.1",
+    "tailwindcss": "4.3.4",
+    "yauzl": "3.4.0",
+    "zod": "4.6.7",
+    "zustand": "5.0.16"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@tailwindcss/vite": "4.3.4",
+    "@types/express": "5.0.6",
+    "@types/jsonwebtoken": "9.0.10",
+    "@types/multer": "2.3.0",
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@types/yauzl": "3.4.0",
+    "supertest": "7.3.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}

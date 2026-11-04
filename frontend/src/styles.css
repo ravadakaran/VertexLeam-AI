@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+:root { font-family: system-ui, sans-serif; color: #17253b; background: #f2f5fa; }
+body { margin: 0; }
+a { color: #174799; text-underline-offset: 0.2em; }
+:focus-visible { outline: 3px solid #4074bd; outline-offset: 3px; }
+h1 { font-size: clamp(1.65rem, 4vw, 2.25rem); font-weight: 700; line-height: 1.15; margin: .5rem 0 1rem; }
+p { margin: 0 0 1rem; }
+.auth-card { max-width: 29rem; margin: min(12vh, 6rem) auto; padding: 2rem; background: white; border: 1px solid #d6dfed; border-radius: 1rem; }
+.auth-card form { display: grid; gap: 1rem; margin: 1.5rem 0; }
+.eyebrow { color: #174799; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
+label { display: grid; gap: .35rem; font-weight: 600; }
+input { padding: .7rem; border: 1px solid #8494aa; border-radius: .4rem; min-width: 0; }
+button { padding: .65rem 1rem; background: #174799; color: white; border-radius: .4rem; font-weight: 650; cursor: pointer; }
+button:disabled { opacity: .7; cursor: wait; }
+button.secondary { background: white; color: #174799; border: 1px solid #8494aa; }
+header { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 1rem 2rem; background: white; border-bottom: 1px solid #d6dfed; }
+header .brand { font-weight: 750; margin-right: auto; }
+.workspace { display: grid; grid-template-columns: minmax(10rem, 14rem) 1fr; min-height: 75vh; }
+.workspace nav { display: flex; flex-direction: column; gap: .5rem; padding: 1.5rem; background: white; }
+.workspace nav a { padding: .55rem .7rem; border-radius: .4rem; }
+.workspace nav a.active { background: #e7effb; font-weight: 650; }
+.workspace main, .notice { padding: 2rem; }
+[role=alert] { color: #a2202a; }
+@media (max-width: 640px) {
+  .auth-card { margin-inline: 1rem; padding: 1.4rem; }
+  .workspace { grid-template-columns: 1fr; }
+  .workspace nav { flex-direction: row; flex-wrap: wrap; padding: .7rem; }
+  header, .workspace main { padding: 1rem; }
+}
+
+.feature-form { display: grid; gap: .75rem; max-width: 35rem; margin-block: 1rem; }
+.feature-form select, .feature-form textarea { border: 1px solid #8494aa; border-radius: .4rem; padding: .55rem; background: white; }
+.workspace li { margin-block: .75rem; }
+.feature-section { border-top: 1px solid #d6dfed; margin-block: 1.25rem; padding-block: 1rem; }
+.feature-section h2, .workspace h2 { font-size: 1.25rem; font-weight: 700; }
+.workspace h3 { font-weight: 700; }
+.workspace video { width: 100%; max-width: 54rem; background: #17253b; }
+.workspace fieldset { border: 1px solid #8494aa; padding: .75rem; }

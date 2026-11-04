@@ -1,0 +1,47 @@
+name: Foundation checks
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci
+      - name: Configure disposable services
+        run: |
+          db_password=$(openssl rand -hex 32)
+          access_key=$(openssl rand -hex 32)
+          refresh_key=$(openssl rand -hex 32)
+          demo_password=$(openssl rand -hex 32)
+          for secret in "$db_password" "$access_key" "$refresh_key" "$demo_password"; do
+            echo "::add-mask::$secret"
+          done
+          umask 077
+          {
+            echo "POSTGRES_PASSWORD=$db_password"
+            echo "DATABASE_URL=postgresql://vertexlearn:$db_password@127.0.0.1:15432/vertexlearn"
+            echo "REDIS_CACHE_URL=redis://127.0.0.1:16379"
+            echo "ACCESS_JWT_KEY=$access_key"
+            echo "REFRESH_JWT_KEY=$refresh_key"
+            echo "DEMO_PASSWORD=$demo_password"
+            echo "APP_ENV=test"
+          } > .env
+      - run: docker compose --env-file .env -f infra/docker-compose.yml up -d --wait
+      - run: npm run db:migrate && npm run db:migrate
+      - run: npm run db:seed && npm run db:seed
+      - run: npm test
+      - run: npm run typecheck && npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: always()
+        run: docker compose --env-file .env -f infra/docker-compose.yml down -v
+
