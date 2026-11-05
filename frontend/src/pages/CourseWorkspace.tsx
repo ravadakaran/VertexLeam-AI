@@ -14,6 +14,143 @@ type CourseDetail = { course: Course; modules: Module[] }
 type Grant = { url: string; playback_id: string; captions_url?: string }
 type Progress = { position_seconds: number; watched_seconds: number; completed: boolean; progress_percent: number }
 type Annotation = { id: string; timestamp_seconds: number; content?: string }
+type TutorSession = { id: string; course_id: string; mode: string }
+type TutorReply = { reply: string; mode: string; sources: Array<{ lecture_id: string; lecture_title: string; timestamp_seconds?: number }> }
+type CourseAnalytics = { starts: number; completes: number; average_quiz_score: number | null; time_on_task_seconds: number; dropoff_percent: number | null }
+
+function formatSeconds(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function CourseTutor({ courseId }: { courseId: string }) {
+  const [session, setSession] = useState<TutorSession>()
+  const [reply, setReply] = useState<TutorReply>()
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function ask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      const form = new FormData(event.currentTarget)
+      const current = session ?? await api<TutorSession>('/ai/chat/sessions', json({ course_id: courseId }, requestKey()))
+      setSession(current)
+      const mode = String(form.get('mode'))
+      if (mode !== current.mode) await api('/ai/chat/sessions/' + current.id + '/mode', json({ mode }, {}, 'PUT'))
+      setReply(await api<TutorReply>('/ai/chat/sessions/' + current.id + '/messages', json({
+        message: form.get('message'), request_id: crypto.randomUUID()
+      })))
+      event.currentTarget.reset()
+    } catch (failure) { setError(String(failure)) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <section className="feature-section border-indigo-200/80 bg-gradient-to-b from-indigo-50/40 to-white shadow-xs">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="p-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold shadow-xs">
+          AI
+        </span>
+        <h2 className="text-lg font-bold text-slate-900 m-0">Ask the course tutor</h2>
+      </div>
+      <p className="text-xs text-slate-500 mb-4">Grounded in lecture transcripts and course syllabus. Ask for explanations, step-by-step guidance, or code walkthroughs.</p>
+
+      <form className="feature-form max-w-none space-y-3" onSubmit={ask}>
+        <label className="text-xs font-semibold text-slate-700">
+          Question
+          <textarea
+            name="message"
+            required
+            maxLength={4000}
+            rows={3}
+            placeholder="e.g. Can you explain how quicksort handles duplicate elements?"
+            className="mt-1"
+          />
+        </label>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <label className="text-xs font-semibold text-slate-700 flex-1 max-w-xs">
+            Explanation depth
+            <select name="mode" defaultValue="intermediate" className="mt-1">
+              {['beginner', 'intermediate', 'advanced'].map(mode => (
+                <option key={mode} value={mode}>{mode}</option>
+              ))}
+            </select>
+          </label>
+          <button disabled={busy} className="text-sm py-2 px-5">
+            {busy ? 'Thinking…' : 'Ask tutor'}
+          </button>
+        </div>
+      </form>
+
+      {error && <p role="alert">{error}</p>}
+
+      {reply && (
+        <div className="mt-5 p-4 rounded-xl bg-white border border-indigo-100 shadow-xs space-y-3">
+          <div className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
+            <span>💡</span> Tutor Explanation ({reply.mode})
+          </div>
+          <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed m-0">{reply.reply}</p>
+          {reply.sources.length > 0 && (
+            <div className="pt-3 border-t border-slate-100">
+              <span className="text-xs font-semibold text-slate-500 block mb-1.5">Grounded Sources & Citations:</span>
+              <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
+                {reply.sources.map((source, index) => (
+                  <li key={source.lecture_id + index} className="text-xs px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-700 font-medium">
+                    📖 {source.lecture_title}{source.timestamp_seconds !== undefined ? ` at ${source.timestamp_seconds}s` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AnalyticsPanel({ courseId }: { courseId: string }) {
+  const report = useData<CourseAnalytics>('/instructor/courses/' + courseId + '/analytics')
+
+  return (
+    <section className="feature-section">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold text-slate-900 m-0">Course analytics</h2>
+        <span className="text-xs text-slate-400 font-medium">Aggregated metrics</span>
+      </div>
+
+      {report.error && <p role="alert">{report.error}</p>}
+
+      {report.data ? (
+        <div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Lecture starts</span>
+              <span className="text-xl font-extrabold text-slate-900">{report.data.starts}</span>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Drop-off rate</span>
+              <span className="text-xl font-extrabold text-slate-900">{report.data.dropoff_percent ?? '—'}%</span>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Quiz average</span>
+              <span className="text-xl font-extrabold text-slate-900">{report.data.average_quiz_score ?? '—'}</span>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Time watched</span>
+              <span className="text-xl font-extrabold text-slate-900">{report.data.time_on_task_seconds}s</span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 m-0">
+            {report.data.starts} lecture starts · {report.data.dropoff_percent ?? '—'}% drop-off · {report.data.average_quiz_score ?? '—'} average quiz score · {report.data.time_on_task_seconds}s watched
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500">Loading metrics…</p>
+      )}
+    </section>
+  )
+}
 
 function Player({ lecture }: { lecture: Lecture }) {
   const prefix = '/lectures/' + lecture.id
@@ -126,36 +263,128 @@ function Player({ lecture }: { lecture: Lecture }) {
     try { window.location.assign(localUrl((await api<Grant>(prefix + '/resources/' + id)).url)) }
     catch (failure) { setDownloadError(String(failure)) }
   }
+
   async function annotation(path: 'notes' | 'bookmarks', data: object) {
     await api(prefix + '/' + path, json({ ...data, timestamp_seconds: Math.floor(video.current?.currentTime ?? 0) }, requestKey()))
     if (path === 'notes') notes.refresh()
     else bookmarks.refresh()
   }
 
-  return <section><h2>{lecture.title}</h2>
-    {lecture.media_status === 'ready' && <>
-      <video ref={video} controls playsInline preload="metadata" aria-label={lecture.title}
-        onPause={() => void heartbeat()} onSeeked={() => void heartbeat()} onEnded={() => void heartbeat()}>
-        {captions && <track kind="captions" srcLang="en" label="English" src={captions} />}
-      </video>
-      <label>Playback speed<select value={speed} onChange={event => setSpeed(Number(event.target.value))}>
-        {[.5, 1, 1.25, 1.5, 2].map(value => <option value={value} key={value}>{value}×</option>)}
-      </select></label>
-      {error && <p role="alert">{error} <button onClick={() => setReload(value => value + 1)}>Reconnect</button></p>}
-      {progress && <p role="status">{progress.completed ? 'Completed' : `${progress.progress_percent}% watched`}</p>}
-    </>}
-    {!!lecture.resources.length && <><h3>Resources</h3><ul>{lecture.resources.map(asset =>
-      <li key={asset.id}><button onClick={() => void download(asset.id)}>Download {asset.title}</button></li>)}</ul></>}
-    {downloadError && <p role="alert">{downloadError}</p>}
-    <ActionForm label="Save note" onSubmit={data => annotation('notes', { content: data.get('content') })}>
-      <label>Note at current time<textarea name="content" required maxLength={12000} /></label>
-    </ActionForm>
-    <ActionForm label="Bookmark current time" onSubmit={() => annotation('bookmarks', {})}>{null}</ActionForm>
-    {notes.error && <p role="alert">{notes.error}</p>}{bookmarks.error && <p role="alert">{bookmarks.error}</p>}
-    <ul>{[...notes.data?.items ?? [], ...bookmarks.data?.items ?? []].map(item => <li key={item.id}>
-      <button onClick={() => { if (video.current) video.current.currentTime = item.timestamp_seconds }}>{item.timestamp_seconds}s</button> {item.content ?? 'Bookmark'}
-    </li>)}</ul>
-  </section>
+  return (
+    <section className="feature-section space-y-4">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h2 className="text-xl font-bold text-slate-900 m-0">{lecture.title}</h2>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
+          Duration: {formatSeconds(lecture.duration_seconds)}
+        </span>
+      </div>
+
+      {lecture.media_status === 'ready' && (
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl bg-black shadow-lg">
+            <video
+              ref={video}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={lecture.title}
+              onPause={() => void heartbeat()}
+              onSeeked={() => void heartbeat()}
+              onEnded={() => void heartbeat()}
+              className="w-full aspect-video m-0"
+            >
+              {captions && <track kind="captions" srcLang="en" label="English" src={captions} />}
+            </video>
+          </div>
+
+          <div className="flex items-center justify-between flex-wrap gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
+            <label className="text-xs font-semibold text-slate-700 flex items-center gap-2 m-0">
+              Playback speed
+              <select
+                value={speed}
+                onChange={event => setSpeed(Number(event.target.value))}
+                className="w-24 text-xs font-semibold py-1 px-2 border-slate-200 rounded-lg"
+              >
+                {[.5, 1, 1.25, 1.5, 2].map(value => <option value={value} key={value}>{value}×</option>)}
+              </select>
+            </label>
+
+            {progress && (
+              <p role="status" className="m-0 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-md">
+                {progress.completed ? 'Completed' : `${progress.progress_percent}% watched`}
+              </p>
+            )}
+          </div>
+
+          {error && (
+            <p role="alert">
+              {error} <button onClick={() => setReload(value => value + 1)} className="secondary text-xs ml-2 py-1 px-2">Reconnect</button>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Resources Section */}
+      {!!lecture.resources.length && (
+        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <h3 className="text-sm font-bold text-slate-800 mb-2">Resources</h3>
+          <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
+            {lecture.resources.map(asset => (
+              <li key={asset.id}>
+                <button
+                  onClick={() => void download(asset.id)}
+                  className="secondary text-xs font-semibold py-1.5 px-3 bg-white hover:bg-slate-50 border-slate-300"
+                >
+                  Download {asset.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {downloadError && <p role="alert">{downloadError}</p>}
+
+      {/* Notes & Bookmarks */}
+      <div className="pt-2 border-t border-slate-100 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ActionForm label="Save note" onSubmit={data => annotation('notes', { content: data.get('content') })}>
+            <label className="text-xs font-semibold text-slate-700">
+              Note at current time
+              <textarea name="content" required maxLength={12000} rows={2} placeholder="Take note tied to current video timestamp…" className="mt-1" />
+            </label>
+          </ActionForm>
+
+          <div className="flex flex-col justify-end">
+            <ActionForm label="Bookmark current time" onSubmit={() => annotation('bookmarks', {})}>
+              {null}
+            </ActionForm>
+          </div>
+        </div>
+
+        {notes.error && <p role="alert">{notes.error}</p>}
+        {bookmarks.error && <p role="alert">{bookmarks.error}</p>}
+
+        {/* Saved Annotations List */}
+        <div>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Saved Moments & Notes</span>
+          <ul className="space-y-2 list-none p-0 m-0">
+            {[...notes.data?.items ?? [], ...bookmarks.data?.items ?? []].map(item => (
+              <li key={item.id} className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+                <button
+                  onClick={() => { if (video.current) video.current.currentTime = item.timestamp_seconds }}
+                  className="secondary text-[11px] font-mono py-0.5 px-2 bg-indigo-50 border-indigo-200 text-indigo-700 font-bold"
+                >
+                  {item.timestamp_seconds}s
+                </button>
+                <span className="text-slate-700 font-medium">{item.content ?? 'Bookmark'}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  )
 }
 
 export function CourseWorkspace({ author = false }: { author?: boolean }) {
@@ -163,35 +392,119 @@ export function CourseWorkspace({ author = false }: { author?: boolean }) {
   const path = (author ? '/instructor/courses/' : '/courses/') + courseId
   const course = useData<CourseDetail>(path)
   const [selected, select] = useState<string>()
+
   if (course.error) return <p role="alert">{course.error}</p>
   if (!course.data) return <p role="status">Loading course…</p>
+
   const { course: current, modules } = course.data
   const lecture = modules.flatMap(module => module.lectures).find(item => item.id === selected)
-  return <><h1>{current.title}</h1><p>{current.description}</p>
-    {author && <ActionForm label="Add module" onSubmit={async data => {
-      await api('/courses/' + current.id + '/modules', json({ title: data.get('title'), order_index: Math.max(-1, ...modules.map(item => item.order_index)) + 1 }, requestKey()))
-      course.refresh()
-    }}><label>Module title<input name="title" required maxLength={200} /></label></ActionForm>}
-    {modules.map(module => <section className="feature-section" key={module.id}><h2>{module.title}</h2>
-      <ul>{module.lectures.map(item => <li key={item.id}>{author ? item.title :
-        <button aria-pressed={selected === item.id} onClick={() => select(item.id)}>{item.title}</button>}</li>)}</ul>
-      {author && <ActionForm label="Upload lecture" onSubmit={async data => {
-        for (const field of ['video','resources','captions']) {
-          const files = data.getAll(field).filter(item => item instanceof File && item.size > 0)
-          data.delete(field); for (const file of files) data.append(field, file)
-        }
-        data.set('order_index', String(Math.max(-1, ...module.lectures.map(item => item.order_index)) + 1))
-        await api('/modules/' + module.id + '/lectures', { method: 'POST', headers: requestKey(), body: data })
-        course.refresh()
-      }}>
-        <label>Lecture title<input name="title" required maxLength={200} /></label>
-        <label>Video<input name="video" type="file" accept=".mp4,.mov,.webm" /></label>
-        <label>English captions<input name="captions" type="file" accept=".vtt" /></label>
-        <label>Resources<input name="resources" type="file" accept=".pdf,.pptx" multiple /></label>
-      </ActionForm>}
-      <Quizzes moduleId={module.id} author={author} />
-    </section>)}
-    {lecture && <Player key={lecture.id} lecture={lecture} />}
-    <Assignments courseId={current.id} author={author} />
-  </>
+
+  return (
+    <div className="space-y-6">
+      {/* Course Banner */}
+      <div className="border-b border-slate-200 pb-5">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
+            {current.category}
+          </span>
+          <span className="text-xs font-semibold text-slate-500 capitalize">
+            {current.difficulty}
+          </span>
+        </div>
+        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">{current.title}</h1>
+        <p className="text-slate-600 text-sm max-w-3xl leading-relaxed mt-2">{current.description}</p>
+      </div>
+
+      {/* Author Module Action */}
+      {author && (
+        <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-100">
+          <ActionForm label="Add module" onSubmit={async data => {
+            await api('/courses/' + current.id + '/modules', json({
+              title: data.get('title'),
+              order_index: Math.max(-1, ...modules.map(item => item.order_index)) + 1
+            }, requestKey()))
+            course.refresh()
+          }}>
+            <label className="text-xs font-semibold text-indigo-900">
+              Module title
+              <input name="title" required maxLength={200} placeholder="e.g. Module 1: Foundations and Analysis" className="mt-1" />
+            </label>
+          </ActionForm>
+        </div>
+      )}
+
+      {/* Curriculum Modules */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold text-slate-900">Curriculum</h2>
+        {modules.map(module => (
+          <section className="feature-section" key={module.id}>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+              <h2 className="text-base font-bold text-slate-800 m-0">{module.title}</h2>
+              <span className="text-xs text-slate-400 font-medium">{module.lectures.length} lecture{module.lectures.length !== 1 ? 's' : ''}</span>
+            </div>
+
+            <ul className="space-y-2 list-none p-0 m-0 mb-4">
+              {module.lectures.map(item => (
+                <li key={item.id} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  {author ? (
+                    <span className="text-sm font-semibold text-slate-800">{item.title}</span>
+                  ) : (
+                    <button
+                      aria-pressed={selected === item.id}
+                      onClick={() => select(item.id)}
+                      className={`text-sm font-semibold py-1 px-3 ${selected === item.id ? 'bg-indigo-600 text-white' : 'secondary'}`}
+                    >
+                      {item.title}
+                    </button>
+                  )}
+                  <span className="text-xs text-slate-400 font-mono">{formatSeconds(item.duration_seconds)}</span>
+                </li>
+              ))}
+            </ul>
+
+            {author && (
+              <div className="mt-4 pt-3 border-t border-slate-100">
+                <ActionForm label="Upload lecture" onSubmit={async data => {
+                  for (const field of ['video', 'resources', 'captions']) {
+                    const files = data.getAll(field).filter(item => item instanceof File && item.size > 0)
+                    data.delete(field); for (const file of files) data.append(field, file)
+                  }
+                  data.set('order_index', String(Math.max(-1, ...module.lectures.map(item => item.order_index)) + 1))
+                  await api('/modules/' + module.id + '/lectures', { method: 'POST', headers: requestKey(), body: data })
+                  course.refresh()
+                }}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="sm:col-span-2 font-semibold text-slate-700">
+                      Lecture title
+                      <input name="title" required maxLength={200} placeholder="e.g. Asymptotic Notation" className="mt-1" />
+                    </label>
+                    <label className="font-semibold text-slate-700">
+                      Video
+                      <input name="video" type="file" accept=".mp4,.mov,.webm" className="mt-1" />
+                    </label>
+                    <label className="font-semibold text-slate-700">
+                      English captions
+                      <input name="captions" type="file" accept=".vtt" className="mt-1" />
+                    </label>
+                    <label className="sm:col-span-2 font-semibold text-slate-700">
+                      Resources
+                      <input name="resources" type="file" accept=".pdf,.pptx" multiple className="mt-1" />
+                    </label>
+                  </div>
+                </ActionForm>
+              </div>
+            )}
+
+            <Quizzes moduleId={module.id} author={author} />
+          </section>
+        ))}
+      </div>
+
+      {lecture && <Player key={lecture.id} lecture={lecture} />}
+
+      {author ? <AnalyticsPanel courseId={current.id} /> : <CourseTutor courseId={current.id} />}
+
+      <Assignments courseId={current.id} author={author} />
+    </div>
+  )
 }

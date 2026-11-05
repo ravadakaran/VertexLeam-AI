@@ -36,9 +36,10 @@ export function ActionForm({ children, label, onSubmit }: {
     catch (error) { setMessage(String(error)) }
     finally { setBusy(false) }
   }
-  return <form className="feature-form" onSubmit={handle}>{children}
-    <button disabled={busy}>{busy ? 'Working…' : label}</button>
-    {message && <p role="status">{message}</p>}
+  return <form className="feature-form space-y-3" onSubmit={handle}>{children}
+    <div>
+      <button disabled={busy} className="text-xs font-semibold py-2 px-4 shadow-sm">{busy ? 'Working…' : label}</button>
+    </div>
+    {message && <p role="status" className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 inline-block">{message}</p>}
   </form>
 }
-

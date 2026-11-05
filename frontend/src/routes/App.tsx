@@ -22,11 +22,25 @@ function Guard({ role }: { role: Role }) {
 
   if (!tokens) return <Navigate to="/login" replace />
   if (!tokens.user.roles.includes(role)) return <Navigate to="/forbidden" replace />
-  if (result?.tokens !== tokens || result.role !== role) return <main className="auth-card" role="status">Checking your session…</main>
-  if (result.failed) return <main className="auth-card">
-    <p role="alert">Could not check your session.</p>
-    <button onClick={() => { setResult(undefined); setAttempt(value => value + 1) }}>Retry</button>
-  </main>
+  if (result?.tokens !== tokens || result.role !== role) {
+    return (
+      <div className="auth-wrapper">
+        <main className="auth-card text-center" role="status">
+          <p className="text-sm font-semibold text-slate-600">Checking your session…</p>
+        </main>
+      </div>
+    )
+  }
+  if (result.failed) {
+    return (
+      <div className="auth-wrapper">
+        <main className="auth-card">
+          <p role="alert">Could not check your session.</p>
+          <button onClick={() => { setResult(undefined); setAttempt(value => value + 1) }}>Retry</button>
+        </main>
+      </div>
+    )
+  }
   if (!result.allowed) return <Navigate to="/forbidden" replace />
   return <Workspace role={role} />
 }
@@ -38,26 +52,97 @@ function Home() {
 
 export function App() {
   const roles = Object.keys(workspaces) as Role[]
-  return <BrowserRouter>
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/login" element={<AuthForm key="login" />} />
-      <Route path="/register" element={<AuthForm key="register" registering />} />
-      <Route path="/forbidden" element={<main className="auth-card">
-        <h1>Access denied</h1><p>Your account cannot open this workspace.</p><Link to="/">Return home</Link>
-      </main>} />
-      {roles.map(role => <Route key={role} path={role} element={<Guard role={role} />}>
-        <Route index element={role === 'student' ? <Learning overview /> : <><p className="eyebrow">Overview</p><h1>{workspaces[role].title} workspace</h1>
-          <p>Use the navigation to explore your workspace.</p></>} />
-        {Object.entries(workspaces[role].sections).map(([path, label]) =>
-          <Route key={path} path={path} element={path === 'catalog' ? <Catalog /> : path === 'learning' ? <Learning /> :
-            role === 'instructor' && path === 'courses' ? <InstructorCourses /> :
-            <><h1>{label}</h1><p>This section is planned for a later task.</p></>} />)}
-        {role === 'student' && <Route path="learning/:courseId" element={<CourseWorkspace />} />}
-        {role === 'instructor' && <Route path="courses/:courseId" element={<CourseWorkspace author />} />}
-      </Route>)}
-      <Route path="*" element={<main className="auth-card"><h1>Page not found</h1><Link to="/">Return home</Link></main>} />
-    </Routes>
-  </BrowserRouter>
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<AuthForm key="login" />} />
+        <Route path="/register" element={<AuthForm key="register" registering />} />
+        <Route
+          path="/forbidden"
+          element={
+            <div className="auth-wrapper">
+              <main className="auth-card text-center">
+                <div className="w-12 h-12 mx-auto rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-xl mb-3">
+                  ✕
+                </div>
+                <h1>Access denied</h1>
+                <p className="text-sm text-slate-500 mb-6">Your account cannot open this workspace.</p>
+                <Link to="/" className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg no-underline hover:text-white">
+                  Return home
+                </Link>
+              </main>
+            </div>
+          }
+        />
+        {roles.map(role => (
+          <Route key={role} path={role} element={<Guard role={role} />}>
+            <Route
+              index
+              element={
+                role === 'student' ? (
+                  <Learning overview />
+                ) : (
+                  <div className="space-y-4">
+                    <p className="eyebrow">Overview</p>
+                    <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">{workspaces[role].title} workspace</h1>
+                    <p className="text-slate-600 text-sm">Use the navigation to explore your workspace.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                      {Object.entries(workspaces[role].sections).map(([path, label]) => (
+                        <div key={path} className="p-5 rounded-xl bg-white border border-slate-200 shadow-xs hover:border-indigo-300 transition-colors">
+                          <h2 className="text-base font-bold text-slate-800 mb-1">{label}</h2>
+                          <p className="text-xs text-slate-500 mb-3">Manage and access your workspace area.</p>
+                          <Link to={`/${role}/${path}`} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+                            Explore section →
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              }
+            />
+            {Object.entries(workspaces[role].sections).map(([path, label]) => (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  path === 'catalog' ? (
+                    <Catalog />
+                  ) : path === 'learning' ? (
+                    <Learning />
+                  ) : role === 'instructor' && path === 'courses' ? (
+                    <InstructorCourses />
+                  ) : (
+                    <div className="space-y-4">
+                      <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">{label}</h1>
+                      <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-xs">
+                        <p className="text-sm text-slate-600 m-0">This section is planned for a later task.</p>
+                      </div>
+                    </div>
+                  )
+                }
+              />
+            ))}
+            {role === 'student' && <Route path="learning/:courseId" element={<CourseWorkspace />} />}
+            {role === 'instructor' && <Route path="courses/:courseId" element={<CourseWorkspace author />} />}
+          </Route>
+        ))}
+        <Route
+          path="*"
+          element={
+            <div className="auth-wrapper">
+              <main className="auth-card text-center">
+                <h1>Page not found</h1>
+                <p className="text-sm text-slate-500 mb-6">The page you are looking for does not exist.</p>
+                <Link to="/" className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg no-underline hover:text-white">
+                  Return home
+                </Link>
+              </main>
+            </div>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
+  )
 }
-
