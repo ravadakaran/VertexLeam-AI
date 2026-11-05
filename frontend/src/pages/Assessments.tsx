@@ -206,7 +206,7 @@ type DraftQuestion = {
   options?: Array<{ option_text: string; is_correct: boolean }>
 }
 type Question = Omit<DraftQuestion, 'options' | 'rubric'> & { id: string; options?: Array<{ id: string; option_text: string }> }
-type Quiz = { id: string; title: string; status: string; revision: string }
+type Quiz = { id: string; title: string; status: string; revision: string; is_ai_generated?: boolean }
 type ManualReview = { question_id: string; question_text: string; text_answer?: string; rubric: string; max_points: number }
 type Attempt = {
   id: string; status: string; revision: string; questions?: Question[];
@@ -339,6 +339,7 @@ function QuizItem({ quiz, author, refresh }: { quiz: Quiz; author: boolean; refr
   const [attempt, setAttempt] = useState<Attempt>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [review,setReview]=useState<{questions:Array<{question_text:string;question_type:string;rubric?:string;source_chunks?:string[];options?:Array<{option_text:string;is_correct:boolean}>}>}>()
 
   async function start(existing?: string) {
     setBusy(true); setError('')
@@ -360,12 +361,15 @@ function QuizItem({ quiz, author, refresh }: { quiz: Quiz; author: boolean; refr
               {quiz.status}
             </span>
             {quiz.status === 'draft' && (
-              <ActionForm label="Publish quiz" onSubmit={async () => {
-                await api(path + '/review', json({ decision: 'approved' }, { ...requestKey(), 'If-Match': quiz.revision }))
-                refresh()
-              }}>
-                {null}
-              </ActionForm>
+              <div className="flex items-center gap-2">
+                <ActionForm label="Publish quiz" onSubmit={async () => {
+                  await api(path + '/review', json({ decision: 'approved' }, { ...requestKey(), 'If-Match': quiz.revision }))
+                  refresh()
+                }}>
+                  {null}
+                </ActionForm>
+                <button type="button" className="secondary text-xs py-1.5 px-3" onClick={async()=>{setError('');try{setReview(await api(path+'/review'))}catch(e){setError(String(e))}}}>Review draft</button>
+              </div>
             )}
           </div>
         ) : (
@@ -378,6 +382,16 @@ function QuizItem({ quiz, author, refresh }: { quiz: Quiz; author: boolean; refr
           </button>
         )}
       </div>
+
+      {author&&quiz.status==='draft'&&review&&<div className="p-3 bg-white border border-indigo-200 rounded-lg space-y-2">
+        <h4 className="text-sm font-bold">{quiz.is_ai_generated?'AI generated questions':'Draft questions'}</h4>
+        {review.questions.map((q,index)=><div key={index} className="p-2 bg-slate-50 rounded text-xs"><strong>{index+1}. {q.question_text}</strong><span className="ml-2 text-slate-500">{q.question_type}</span>
+          {q.options?.map((option,i)=><div key={i} className={option.is_correct?'text-emerald-700 font-semibold':'text-slate-600'}>{option.is_correct?'✓ ':'· '}{option.option_text}</div>)}
+          {q.rubric&&<p className="m-0 text-slate-600">Rubric: {q.rubric}</p>}
+          {!!q.source_chunks?.length&&<p className="m-0 text-slate-500">Transcript evidence: {q.source_chunks.length} source chunk(s)</p>}
+        </div>)}
+        <div className="flex gap-2">{(['approved','rejected'] as const).map(decision=><button key={decision} type="button" className="secondary text-xs py-1.5 px-3" onClick={async()=>{setBusy(true);setError('');try{await api(path+'/review',json({decision},{...requestKey(),'If-Match':quiz.revision}));setReview(undefined);refresh()}catch(e){setError(String(e))}finally{setBusy(false)}}} disabled={busy}>{decision==='approved'?'Approve and publish':'Reject draft'}</button>)}</div>
+      </div>}
 
       {attempt?.status === 'in_progress' && (
         <div className="mt-4 p-4 rounded-xl bg-white border border-indigo-200 shadow-xs space-y-4">
@@ -474,10 +488,20 @@ function QuizItem({ quiz, author, refresh }: { quiz: Quiz; author: boolean; refr
 
 export function Quizzes({ moduleId, author }: { moduleId: string; author: boolean }) {
   const quizzes = useData<Page<Quiz>>('/modules/' + moduleId + '/quizzes')
+  const [draftError,setDraftError]=useState('')
+  const [generating,setGenerating]=useState(false)
+  async function generateDraft(){
+    setGenerating(true);setDraftError('')
+    try{await api('/ai/modules/'+moduleId+'/quiz-draft',json({},requestKey()));quizzes.refresh()}
+    catch(error){setDraftError(String(error))}finally{setGenerating(false)}
+  }
 
   return (
     <section className="mt-4 pt-3 border-t border-slate-100">
-      <h3 className="text-sm font-bold text-slate-800 mb-2">Quizzes</h3>
+      <div className="flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-800 mb-2">Quizzes</h3>
+        {author&&<button type="button" disabled={generating} onClick={()=>void generateDraft()} className="secondary text-xs py-1.5 px-3">{generating?'Generating…':'Generate AI draft'}</button>}
+      </div>
+      {draftError&&<p role="alert">{draftError}</p>}
       {author && <QuizEditor moduleId={moduleId} onSaved={quizzes.refresh} />}
       {quizzes.error && <p role="alert">{quizzes.error}</p>}
       {quizzes.data?.items.map(quiz => (

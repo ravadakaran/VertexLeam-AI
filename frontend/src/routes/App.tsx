@@ -5,6 +5,7 @@ import { Workspace, workspaces } from '../layouts/Workspace'
 import { AuthForm } from '../pages/auth/AuthForm'
 import { Catalog, InstructorCourses, Learning } from '../pages/Learning'
 import { CourseWorkspace } from '../pages/CourseWorkspace'
+import { AdminPanel } from '../pages/AdminPanel'
 
 function Guard({ role }: { role: Role }) {
   const tokens = useSession(state => state.tokens)
@@ -84,16 +85,19 @@ export function App() {
                   <Learning overview />
                 ) : (
                   <div className="space-y-4">
-                    <p className="eyebrow">Overview</p>
-                    <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">{workspaces[role].title} workspace</h1>
-                    <p className="text-slate-600 text-sm">Use the navigation to explore your workspace.</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                    <div className="page-heading">
+                      <p className="eyebrow">{role === 'instructor' ? 'Teach with confidence' : 'Platform governance'}</p>
+                      <h1>{workspaces[role].title} workspace</h1>
+                      <p>{role === 'instructor' ? 'Build and manage courses, then help learners make progress.' : 'Review activity and keep the learning experience running smoothly.'}</p>
+                    </div>
+                    <div className="dashboard-grid mt-6">
                       {Object.entries(workspaces[role].sections).map(([path, label]) => (
-                        <div key={path} className="p-5 rounded-xl bg-white border border-slate-200 shadow-xs hover:border-indigo-300 transition-colors">
-                          <h2 className="text-base font-bold text-slate-800 mb-1">{label}</h2>
-                          <p className="text-xs text-slate-500 mb-3">Manage and access your workspace area.</p>
-                          <Link to={`/${role}/${path}`} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
-                            Explore section →
+                        <div key={path} className="dashboard-card">
+                          <p className="eyebrow">{role === 'admin' ? 'Platform tools' : 'Teaching'}</p>
+                          <h2>{label}</h2>
+                          <p className="text-sm">{role === 'admin' ? `Review and manage ${label.toLowerCase()} in one place.` : 'Create courses, organize lessons, and follow learner activity.'}</p>
+                          <Link to={`/${role}/${path}`} className="text-sm">
+                            Manage section <span aria-hidden="true">→</span>
                           </Link>
                         </div>
                       ))}
@@ -111,6 +115,8 @@ export function App() {
                     <Catalog />
                   ) : path === 'learning' ? (
                     <Learning />
+                  ) : role === 'admin' ? (
+                    <AdminPanel section={path} />
                   ) : role === 'instructor' && path === 'courses' ? (
                     <InstructorCourses />
                   ) : (

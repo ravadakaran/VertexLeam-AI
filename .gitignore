@@ -4,4 +4,7 @@ dist/
 !.env.example
 playwright-report/
 test-results/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 

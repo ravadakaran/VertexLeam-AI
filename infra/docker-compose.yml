@@ -23,6 +23,21 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+  ai-service:
+    build: ../ai-service
+    profiles: ['ai']
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-}
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      AI_OUTBOUND_DATA_APPROVED: ${AI_OUTBOUND_DATA_APPROVED:-false}
+    ports:
+      - '127.0.0.1:18000:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
 volumes:
   postgres:
 

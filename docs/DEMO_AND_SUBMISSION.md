@@ -16,7 +16,7 @@ Ingest a lecture and wait for the active version. Ask a supported question, foll
 
 ## D4 · Deployed governance and release
 
-Use admin to approve and reject submitted courses, assign and revoke roles, suspend/delete a synthetic user and verify invalidated credentials. Post instructor announcement and threaded student reply, report a post, moderate with owning instructor or admin, and verify in-app and sandbox email notification. Compare DAU, enrollments, completion and labeled demo revenue with the [analytics fixture](PERSONALIZATION_AND_ANALYTICS.md). Verify final staging smoke and production digest, accessibility and load results. Confirm known-good rollback digest and restore drill record.
+Use admin to approve and reject submitted courses, assign and revoke roles, suspend a synthetic user and verify invalidated credentials. Complete account deletion only after the retention and anonymization policy in [DEC-14](DECISIONS.md#decisions-and-open-issues) is confirmed. Post instructor announcement and threaded student reply, report a post, moderate with owning instructor or admin, and verify in-app and sandbox email notification. Compare DAU, enrollments, completion and labeled demo revenue with the [analytics fixture](PERSONALIZATION_AND_ANALYTICS.md). Verify final staging smoke and production digest, accessibility and load results. Confirm known-good rollback digest and restore drill record.
 
 ## Evidence index
 
@@ -24,8 +24,8 @@ Use admin to approve and reject submitted courses, assign and revoke roles, susp
 |---|---|---|
 | D1 | First-slice role screens, API traces, persisted enrollment and decision audit | Planned |
 | D2 | Playback resume, annotation, file/grade, quiz and certificate workflow, negative access tests | Planned |
-| D3 | Retrieval tests, sample replies with citations, draft review, outage test and AI evaluation workbook/results | Planned |
-| D4 | CI status, staging smoke, deployment record, production demo URL after deployment, accessibility and k6 outputs, release/restore notes | Planned |
+| D3 | Retrieval and summary citations, module flashcards, private quiz draft review, mastery/study plan, provider outage and AI evaluation workbook/results | Planned |
+| D4 | Admin approvals and role/suspension audit, platform metrics and synthetic revenue reconciliation, moderation decisions, CI status, staging smoke, accessibility/load and release/restore outputs | Planned |
 | L1 | Live cohort completion/streak analysis and 30-day core uptime | Requires observation |
 
 Capture commands, test data, release SHA, actual outputs and dates. Keep synthetic account secrets in approved configuration. Archive sanitized screenshots, CI logs and contract checks with the same revision. Record the approved Word PRD reference and [scope ledger](PROJECT_REQUIREMENTS.md) in the submission.
@@ -57,6 +57,10 @@ Local results on 4 November 2026 using Docker PostgreSQL and Redis, Node 24, syn
 | T-010 | Draft and answer-key isolation, version pinning, all three question types, manual grading and stable retries passed. Chromium authored, published and completed an objective quiz. |
 
 The integration suite passed after two migration and seed runs against a fresh disposable database. TypeScript checks, the production frontend build and OpenAPI validation passed. Antivirus-backed uploads, hosted CI and deployment remain unverified.
+
+## Awards, analytics and AI verification
+
+Local results on 5 November 2026 using the synthetic PostgreSQL/Redis stack. T-011 verified idempotent first-course and seven-day badges, perfect-quiz badge, one private certificate under the test-only policy flag, owner download and cross-learner denial. T-012 verified playback-start counts and instructor ownership denial. T-013–015 verified non-enrolled tutor denial and the 503 path when service/provider configuration is absent. `npm run typecheck`, `npm run build`, Python syntax compilation, migrations and the backend integration suite passed. Live provider calls, transcription/document extraction, AI citation quality, cloud deployment and production evidence remain unverified. Certificate and outbound AI data processing remain disabled by default pending DEC-02 and DEC-09.
 
 ## Documentation verification
 

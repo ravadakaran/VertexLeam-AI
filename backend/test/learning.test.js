@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
+import { createServer } from 'node:http'
 import { crc32 } from 'node:zlib'
 import argon2 from 'argon2'
 import jwt from 'jsonwebtoken'
@@ -15,9 +16,11 @@ import request from 'supertest'
 
 assert.ok(['development', 'test'].includes(process.env.APP_ENV))
 process.env.SYNTHETIC_UPLOADS = 'true'
+process.env.CERTIFICATE_POLICY_CONFIRMED = 'true'
 const { app } = await import('../src/app.ts')
 const { db } = await import('../src/db/index.ts')
 const { cache } = await import('../src/cache.ts')
+const { refreshAwards } = await import('../src/modules/gamification/routes.ts')
 const api = request(app)
 const base = '/api/v1'
 const run = randomUUID()
@@ -26,6 +29,7 @@ const password = randomUUID()
 const bearer = (req, user) => req.set('Authorization', 'Bearer ' + user.access_token)
 const write = (req, key = randomUUID()) => req.set('Idempotency-Key', key)
 const sessions = {}
+const deletedFixtureIds=[]
 let course, module, lecture, pdf, student2, student3
 
 // A deterministic uncompressed ZIP permits traversal and package fixtures without external tools.
@@ -101,10 +105,16 @@ after(async () => {
   const match = `%-${run}@vertexlearn.test`
   try {
     await db.query('DELETE FROM enrollments WHERE user_id IN (SELECT id FROM users WHERE email LIKE $1)', [match])
+    await db.query('DELETE FROM moderation_reports WHERE reporter_id IN (SELECT id FROM users WHERE email LIKE $1) OR reviewed_by IN (SELECT id FROM users WHERE email LIKE $1)', [match])
+    await db.query('DELETE FROM synthetic_payments WHERE user_id IN (SELECT id FROM users WHERE email LIKE $1)', [match])
     await db.query('DELETE FROM course_approvals WHERE reviewed_by IN (SELECT id FROM users WHERE email LIKE $1)', [match])
     await db.query('DELETE FROM audit_logs WHERE actor_id IN (SELECT id FROM users WHERE email LIKE $1)', [match])
     await db.query('DELETE FROM courses WHERE instructor_id IN (SELECT id FROM users WHERE email LIKE $1)', [match])
     await db.query('DELETE FROM users WHERE email LIKE $1', [match])
+    if(deletedFixtureIds.length){
+      await db.query('DELETE FROM audit_logs WHERE actor_id=ANY($1::uuid[])',[deletedFixtureIds])
+      await db.query('DELETE FROM users WHERE id=ANY($1::uuid[])',[deletedFixtureIds])
+    }
   } finally {
     if (cache.isOpen) await cache.quit()
     await db.end()
@@ -284,4 +294,193 @@ test('T-010 drafts are private, attempts pin revision, objective scoring and man
   assert.equal((await put(prefix + '/grade', author, submitted.revision, grade).expect(200)).body.score, 75)
   assert.equal((await get(prefix, student).expect(200)).body.score, 75)
   assert.deepEqual((await post(prefix + '/submit', student, body, key).expect(200)).body, submitted)
+})
+
+test('T-011 awards and T-012 analytics are scoped, stable and owner-only', async () => {
+  const prefix = '/users/me'
+  const certificates = (await get(prefix + '/certificates', sessions.student).expect(200)).body.items
+  assert.equal(certificates.length, 1)
+  await get('/certificates/' + certificates[0].id + '/download', student2).expect(404)
+  await get('/certificates/' + certificates[0].id + '/download', sessions.student).expect('Content-Type', /application\/pdf/).expect(200)
+  const badges = (await get(prefix + '/badges', sessions.student).expect(200)).body.items
+  assert.ok(badges.some(item => item.badge_key === 'first_course'))
+  for (let daysAgo = 0; daysAgo < 7; daysAgo++) await db.query(`INSERT INTO learner_activity(user_id,activity_date)
+    VALUES($1,(now() AT TIME ZONE 'UTC')::date-$2::int) ON CONFLICT DO NOTHING`, [sessions.student.user.id, daysAgo])
+  await refreshAwards(sessions.student.user.id, course.id)
+  const streakBadges = (await get(prefix + '/badges', sessions.student).expect(200)).body.items
+  assert.ok(streakBadges.some(item => item.badge_key === 'seven_day_streak'))
+  const perfect = (await post('/quizzes', sessions.author, { module_id: module.id, title: 'Perfect milestone', questions: [
+    { question_type: 'mcq', question_text: 'Select the answer', max_points: 1, options: [
+      { option_text: 'Correct', is_correct: true }, { option_text: 'Other', is_correct: false }
+    ] }
+  ] }).expect(201)).body
+  const published = (await post('/quizzes/' + perfect.id + '/review', sessions.author, { decision: 'approved' }).set('If-Match', perfect.revision).expect(200)).body
+  const attempt = (await post('/quizzes/' + perfect.id + '/attempt', sessions.student, {}).expect(201)).body
+  await post('/attempts/' + attempt.id + '/submit', sessions.student, { answers: [
+    { question_id: attempt.questions[0].id, selected_option_ids: [attempt.questions[0].options[0].id] }
+  ] }).expect(200)
+  const milestones = (await get(prefix + '/badges', sessions.student).expect(200)).body.items
+  assert.ok(milestones.some(item => item.badge_key === 'perfect_quiz'))
+  await get(prefix + '/streak', sessions.student).expect(200)
+  const analytics = await get('/instructor/courses/' + course.id + '/analytics', sessions.author).expect(200)
+  assert.equal(analytics.body.starts, 1)
+  await get('/instructor/courses/' + course.id + '/analytics', sessions.stranger).expect(404)
+  await get('/instructor/courses/' + course.id + '/analytics', sessions.student).expect(403)
+})
+
+test('T-013–015 AI service requires enrollment and remains unavailable without approved provider configuration', async () => {
+  const { AI_SERVICE_TOKEN, AI_SERVICE_URL, AI_OUTBOUND_DATA_APPROVED } = process.env
+  delete process.env.AI_SERVICE_TOKEN; delete process.env.AI_SERVICE_URL; delete process.env.AI_OUTBOUND_DATA_APPROVED
+  try {
+    await post('/ai/chat/sessions', sessions.outsider, { course_id: course.id }).expect(403)
+    await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(503)
+    await post('/ai/lectures/' + lecture.id + '/ingest', sessions.stranger, { content: 'Synthetic transcript', segments: [] }).expect(404)
+  } finally {
+    if (AI_SERVICE_TOKEN !== undefined) process.env.AI_SERVICE_TOKEN = AI_SERVICE_TOKEN
+    if (AI_SERVICE_URL !== undefined) process.env.AI_SERVICE_URL = AI_SERVICE_URL
+    if (AI_OUTBOUND_DATA_APPROVED !== undefined) process.env.AI_OUTBOUND_DATA_APPROVED = AI_OUTBOUND_DATA_APPROVED
+  }
+})
+
+test('T-016–020 grounded tools, mastery planning and governance APIs enforce scope', async () => {
+  await get('/admin/users', sessions.student).expect(403)
+  const aiConfig={token:process.env.AI_SERVICE_TOKEN,url:process.env.AI_SERVICE_URL,approved:process.env.AI_OUTBOUND_DATA_APPROVED}
+  delete process.env.AI_SERVICE_TOKEN;delete process.env.AI_SERVICE_URL;delete process.env.AI_OUTBOUND_DATA_APPROVED
+  try {
+    await post('/ai/lectures/'+lecture.id+'/summarize',sessions.student,{}).expect(503)
+    await post('/ai/modules/'+module.id+'/flashcards',sessions.student,{}).expect(503)
+    await post('/ai/modules/'+module.id+'/quiz-draft',sessions.author,{}).expect(503)
+  } finally {
+    if(aiConfig.token!==undefined)process.env.AI_SERVICE_TOKEN=aiConfig.token
+    if(aiConfig.url!==undefined)process.env.AI_SERVICE_URL=aiConfig.url
+    if(aiConfig.approved!==undefined)process.env.AI_OUTBOUND_DATA_APPROVED=aiConfig.approved
+  }
+  const topic=(await post('/courses/'+course.id+'/topics',sessions.author,{name:'Sorting fundamentals',description:'Ordering and complexity'}).expect(201)).body
+  let mastery=(await get('/users/me/mastery',sessions.student3).expect(200)).body.items
+  assert.equal(mastery.find(item=>item.topic_id===topic.id).band,'intermediate')
+  const draft=(await post('/quizzes',sessions.author,{module_id:module.id,title:'Topic mastery quiz',questions:[
+    {question_type:'mcq',question_text:'Which operation orders values?',max_points:2,topic_id:topic.id,options:[
+      {option_text:'Sorting',is_correct:true},{option_text:'Hashing',is_correct:false}
+    ]}
+  ]}).expect(201)).body
+  await post('/quizzes/'+draft.id+'/review',sessions.author,{decision:'approved'}).set('If-Match',draft.revision).expect(200)
+  const attempt=(await post('/quizzes/'+draft.id+'/attempt',sessions.student3,{}).expect(201)).body
+  await post('/attempts/'+attempt.id+'/submit',sessions.student3,{answers:[{question_id:attempt.questions[0].id,selected_option_ids:[attempt.questions[0].options[0].id]}]}).expect(200)
+  mastery=(await get('/users/me/mastery',sessions.student3).expect(200)).body.items
+  assert.equal(mastery.find(item=>item.topic_id===topic.id).score,0.6)
+  const plan=(await get('/users/me/study-plan',sessions.student3).expect(200)).body
+  assert.equal(plan.steps[0].reason,'Prior finalized quiz performance indicates this priority')
+  const candidate=(await post('/courses',sessions.author,{title:'Sorting project challenge '+run,description:'Practice sorting fundamentals',category:'Testing',difficulty:'intermediate',price:0,pricing_tier:'free'}).expect(201)).body
+  await post('/courses/'+candidate.id+'/approve',sessions.admin,{decision:'approved'}).set('If-Match',candidate.revision).expect(200)
+  const suggestions=(await get('/users/me/recommendations',sessions.student3).expect(200)).body.items
+  assert.equal(suggestions[0].course_id,candidate.id)
+
+  const pending=(await post('/courses',sessions.author,{title:'Pending admin review '+run,category:'Testing',difficulty:'beginner',price:0,pricing_tier:'free'}).expect(201)).body
+  const queue=(await get('/admin/courses/pending',sessions.admin).expect(200)).body.items
+  assert.ok(queue.some(item=>item.id===pending.id))
+  await get('/admin/analytics/overview',sessions.student).expect(403)
+  await db.query('INSERT INTO synthetic_payments(user_id,course_id,amount,status) VALUES($1,$2,499,\'succeeded\')',[sessions.student.user.id,course.id])
+  const metrics=(await get('/admin/analytics/overview',sessions.admin).expect(200)).body
+  assert.equal(metrics.revenue.amount,499)
+  assert.equal(metrics.revenue.provenance,'synthetic payments')
+  await db.query('DELETE FROM synthetic_payments WHERE user_id=$1',[sessions.student.user.id])
+
+  const {rows:[report]}=await db.query('INSERT INTO moderation_reports(reporter_id,entity_type,entity_id,reason) VALUES($1,\'course\',$2,\'Synthetic report\') RETURNING id',[sessions.student.user.id,course.id])
+  await get('/admin/moderation/reports',sessions.student).expect(403)
+  assert.ok((await get('/admin/moderation/reports',sessions.admin).expect(200)).body.items.some(item=>item.id===report.id))
+  await post('/admin/moderation/reports/'+report.id+'/review',sessions.admin,{decision:'dismissed'}).expect(200)
+  await post('/admin/moderation/reports/'+report.id+'/review',sessions.admin,{decision:'dismissed'}).expect(409)
+
+  const {roles:current}=sessions.student3.user
+  await bearer(api.put(base+'/admin/users/'+sessions.student3.user.id+'/roles'),sessions.admin).send({roles:['student','instructor']}).expect(200)
+  await get('/users/me/mastery',sessions.student3).expect(401)
+  const upgraded=(await api.post(base+'/auth/login').send({email:email('student3'),password}).expect(200)).body
+  await bearer(api.put(base+'/admin/users/'+sessions.student3.user.id+'/roles'),sessions.admin).send({roles:current}).expect(200)
+  await post('/admin/users/'+sessions.student3.user.id+'/suspend',sessions.admin,{suspended:true}).expect(200)
+  await get('/users/me/mastery',{access_token:upgraded.access_token}).expect(401)
+  await post('/admin/users/'+sessions.student3.user.id+'/suspend',sessions.admin,{suspended:false}).expect(200)
+})
+
+test('T-016–017 approved internal adapter returns lecture tools and keeps generated quiz private until review', async () => {
+  const {rows:[generation]}=await db.query(`INSERT INTO ai_source_generations(lecture_id,generation,status,source_hash)
+    VALUES($1,100,'active',$2) RETURNING id`,[lecture.id,'synthetic-'+run])
+  const {rows:[chunk]}=await db.query(`INSERT INTO ai_chunks(generation_id,course_id,lecture_id,ordinal,content,start_seconds)
+    VALUES($1,$2,$3,0,'Quicksort chooses a pivot and partitions values around it.',42) RETURNING id`,[generation.id,course.id,lecture.id])
+  const questions=Array.from({length:5},(_,index)=>({question_text:`Question ${index+1} about partitioning`,question_type:'mcq',max_points:1,evidence:chunk.id,options:[
+    {option_text:'Partitions values around a pivot',is_correct:true},{option_text:'Sorts by hashing',is_correct:false}
+  ]}))
+  let providerCalls=0
+  const server=createServer(async(req,res)=>{
+    providerCalls++
+    const pieces=[];for await(const piece of req)pieces.push(piece)
+    const body=JSON.parse(Buffer.concat(pieces).toString())
+    const path=req.url
+    const result=path==='/v1/summarize'?{summary:`Sorting uses a pivot [${chunk.id}]`,sources:[{chunk_id:chunk.id}]}:
+      path==='/v1/flashcards'?{items:[{question:'What does a pivot do?',answer:'Partitions values around itself.'}]}:
+      {title:'Generated transcript quiz',questions}
+    res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(result))
+  })
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+  const previous={token:process.env.AI_SERVICE_TOKEN,url:process.env.AI_SERVICE_URL,approved:process.env.AI_OUTBOUND_DATA_APPROVED}
+  process.env.AI_SERVICE_TOKEN='synthetic-adapter-token'
+  process.env.AI_SERVICE_URL=`http://127.0.0.1:${server.address().port}`
+  process.env.AI_OUTBOUND_DATA_APPROVED='true'
+  try{
+    const summary=(await post('/ai/lectures/'+lecture.id+'/summarize',sessions.student,{}).expect(200)).body
+    assert.match(summary.summary,/Private lecture at 42s/)
+    assert.equal(summary.sources[0].lecture_id,lecture.id)
+    const cards=(await post('/ai/modules/'+module.id+'/flashcards',sessions.student,{}).expect(200)).body
+    assert.equal(cards.items[0].question,'What does a pivot do?')
+    const draftKey=randomUUID()
+    const draft=(await post('/ai/modules/'+module.id+'/quiz-draft',sessions.author,{},draftKey).expect(201)).body
+    assert.equal(draft.questions.length,5);assert.equal(draft.status,'draft')
+    const retry=(await post('/ai/modules/'+module.id+'/quiz-draft',sessions.author,{},draftKey).expect(201)).body
+    assert.equal(retry.quiz_id,draft.quiz_id);assert.equal(providerCalls,3)
+    await post('/quizzes/'+draft.quiz_id+'/attempt',sessions.student,{}).expect(404)
+    await get('/quizzes/'+draft.quiz_id+'/review',sessions.student).expect(403)
+    const review=(await get('/quizzes/'+draft.quiz_id+'/review',sessions.author).expect(200)).body
+    assert.equal(review.questions[0].source_chunks[0],chunk.id)
+    await post('/quizzes/'+draft.quiz_id+'/review',sessions.author,{decision:'approved'}).set('If-Match',draft.revision).expect(200)
+    await post('/quizzes/'+draft.quiz_id+'/attempt',sessions.student,{}).expect(201)
+  }finally{
+    server.close()
+    for(const [key,value] of Object.entries({AI_SERVICE_TOKEN:previous.token,AI_SERVICE_URL:previous.url,AI_OUTBOUND_DATA_APPROVED:previous.approved})){
+      if(value===undefined)delete process.env[key];else process.env[key]=value
+    }
+  }
+})
+
+test('T-019 account deletion is policy-gated, anonymizes PII and revokes access', async()=>{
+  const target=sessions.outsider, prior=process.env.ACCOUNT_DELETION_POLICY_CONFIRMED
+  deletedFixtureIds.push(target.user.id)
+  await db.query('INSERT INTO lecture_annotations(lecture_id,user_id,kind,timestamp_seconds,content) VALUES($1,$2,\'note\',0,\'private note\')',[lecture.id,target.user.id])
+  await db.query('INSERT INTO ai_chat_sessions(user_id,course_id) VALUES($1,$2)',[target.user.id,course.id])
+  await db.query('INSERT INTO learner_activity(user_id,activity_date) VALUES($1,(now() AT TIME ZONE \'UTC\')::date)',[target.user.id])
+  await db.query("INSERT INTO audit_logs(actor_id,action,entity,entity_id,metadata) VALUES($1,'test.personal','user',$1,$2)",[target.user.id,{email:email('outsider'),detail:'private metadata'}])
+  delete process.env.ACCOUNT_DELETION_POLICY_CONFIRMED
+  try{await bearer(api.delete(base+'/admin/users/'+target.user.id),sessions.admin).expect(503)}
+  finally{if(prior!==undefined)process.env.ACCOUNT_DELETION_POLICY_CONFIRMED=prior}
+  process.env.ACCOUNT_DELETION_POLICY_CONFIRMED='true'
+  try{
+    await bearer(api.delete(base+'/admin/users/'+sessions.admin.user.id),sessions.admin).expect(409)
+    const deletion=(await bearer(api.delete(base+'/admin/users/'+target.user.id),sessions.admin).expect(200)).body
+    assert.equal(deletion.deleted,true)
+    const {rows:[tombstone]}=await db.query('SELECT full_name,email,is_active,deleted_at,revision FROM users WHERE id=$1',[target.user.id])
+    assert.equal(tombstone.full_name,'Deleted account');assert.equal(tombstone.email,`deleted+${target.user.id}@deleted.invalid`);assert.equal(tombstone.is_active,false)
+    await get('/auth/me',target).expect(401)
+    await api.post(base+'/auth/login').send({email:email('outsider'),password}).expect(401)
+    await bearer(api.put(base+'/admin/users/'+target.user.id+'/roles'),sessions.admin).send({roles:['student']}).expect(409)
+    await post('/admin/users/'+target.user.id+'/suspend',sessions.admin,{suspended:false}).expect(409)
+    const {rows:[privateRows]}=await db.query(`SELECT
+      (SELECT count(*)::int FROM lecture_annotations WHERE user_id=$1) annotations,
+      (SELECT count(*)::int FROM ai_chat_sessions WHERE user_id=$1) chats,
+      (SELECT count(*)::int FROM learner_activity WHERE user_id=$1) activity,
+      (SELECT count(*)::int FROM user_roles WHERE user_id=$1) roles,
+      (SELECT count(*)::int FROM sessions WHERE user_id=$1 AND revoked_at IS NOT NULL) revoked`,[target.user.id])
+    assert.deepEqual(privateRows,{annotations:0,chats:0,activity:1,roles:0,revoked:1})
+    const {rows:[audit]}=await db.query("SELECT metadata FROM audit_logs WHERE actor_id=$1 AND action='test.personal'",[target.user.id])
+    assert.deepEqual(audit.metadata,{redacted:true,action:'test.personal'})
+    const retried=(await bearer(api.delete(base+'/admin/users/'+target.user.id),sessions.admin).expect(200)).body
+    assert.equal(retried.deleted_at.toString(),deletion.deleted_at)
+  }finally{if(prior===undefined)delete process.env.ACCOUNT_DELETION_POLICY_CONFIRMED;else process.env.ACCOUNT_DELETION_POLICY_CONFIRMED=prior}
 })

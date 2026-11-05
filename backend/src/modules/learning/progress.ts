@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg'
 import type { Profile } from '../../types.ts'
 import { transaction } from '../../db/index.ts'
 import { conflict, digest, invalid, lectureScope } from './scope.ts'
+import { refreshAwards } from '../gamification/routes.ts'
 
 type Heartbeat = {
   position_seconds: number; event_id: string; playback_id: string; sequence: number
@@ -76,6 +77,7 @@ export function writeProgress(user: Profile, id: string, body: Heartbeat) {
         WHERE c.enrollment_id=$1
       ),0) WHERE id=$1
     `, [enrollment])
+    await refreshAwards(user.id, lecture.course_id, client)
     return view(client, enrollment, id, duration)
   })
 }

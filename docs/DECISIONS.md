@@ -17,8 +17,10 @@ The PRD is approved. These are proposed implementation decisions and open policy
 | DEC-11 | §§1, 6, 9 · proposed | Centralize course scope, policy and cache keys with a deployment namespace. Add tenant membership and isolation migrations when a tenant model is approved. | Tenant onboarding and switching are future work. |
 | DEC-12 | §§8.2, 11 · proposed | Apply §11 admin override for authoring, uploads, grades and quiz review. Keep instructor reviewer chat separate from student sessions. | Test §11 route exceptions. |
 | DEC-13 | §14 · proposed | Use ECS Fargate and managed AWS data, CDN and monitoring services. Stage smaller with independent data. | Cloud budget, account and domain setup. |
-| DEC-14 | §§6, 11 · open | Tombstone deleted accounts, revoke sessions and anonymize PII on agreed schedule. Preserve referential and redacted audit history. | Agree retention and deletion SLA before production demo. |
+| DEC-14 | §§6, 11 · proposed | On deletion, immediately anonymize profile PII, revoke sessions, erase private notes, chat, submissions and certificates, and remove private mastery data. Keep the account tombstone, course enrollments, playback and daily activity facts, finalized quiz scores with answer content removed, authored course content and redacted audit history. `ACCOUNT_DELETION_POLICY_CONFIRMED=true` is an operational gate only; update this decision to confirmed before enabling deletion. | Confirm the retained-data scope and any legal/operational retention exception before production demo. |
 | DEC-15 | §§8–9, 13 · proposed | Core authorizes public AI requests and exchanges identity with isolated FastAPI. Deliver progressive HLS segments via signed private CDN access. | Routing refinement to §9.2. Verify core functions during AI outages. |
+
+Implementation guard: certificate creation stays off until `CERTIFICATE_POLICY_CONFIRMED=true` because DEC-02 eligibility remains open. AI provider processing stays off until `AI_OUTBOUND_DATA_APPROVED=true` because DEC-09 entitlement and outbound data policy remain open. Account deletion stays off until `ACCOUNT_DELETION_POLICY_CONFIRMED=true` and DEC-14 is changed to confirmed. These flags are operational acknowledgments, not a record of policy approval; update this decision log before enabling gated behavior.
 
 ## Official compatibility notes
 

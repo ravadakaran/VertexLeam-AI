@@ -6,7 +6,7 @@ Every test and release measurement below is planned. Use Jest/Supertest for core
 
 Run T-001–004 with the [foundation integration suite](../backend/test/foundation.test.js) and the migration/seed commands in [local setup](ENVIRONMENT_SETUP.md#run-the-foundation). Run T-005 with the [Chromium workspace test](../frontend/test/workspaces.spec.ts). The [CI workflow](../.github/workflows/ci.yml) runs the same checks on a disposable stack.
 
-The [Chromium learning walkthrough](../frontend/test/learning.spec.ts) covers T-006 and browser playback. The [learning integration suite](../backend/test/learning.test.js) covers T-007–010 with disposable accounts and synthetic media and assessment files.
+The [Chromium learning walkthrough](../frontend/test/learning.spec.ts) covers T-006 and browser playback. The [learning integration suite](../backend/test/learning.test.js) covers T-007–012 and negative AI scope/configuration checks for T-013–015 with disposable accounts and synthetic media and assessment files. Live provider retrieval remains unverified until DEC-09 is resolved and an approved provider configuration is available.
 
 | Test | Scenario | Fixtures and technique | Expected result |
 |---|---|---|---|
@@ -25,11 +25,11 @@ The [Chromium learning walkthrough](../frontend/test/learning.spec.ts) covers T-
 | T-013 | AI service | Mock provider, expired service identity and timeout | Authenticated internal calls work; readiness and timeout paths have offline tests. |
 | T-014 | Ingestion | Timestamped transcript, rerun/replacement, malformed asset and vector width | Retry leaves one active source generation; vectors have 1536 dimensions and segments retain offsets. |
 | T-015 | Tutor | Cross-course twin corpus, legitimate answer, no-answer, injection, citation and provider fault | Good source cites correct lecture; identical cross-course text, injected instructions and provider outage are handled. |
-| T-016 | Learning tools | Summary and flashcard source fixtures and answer-key fishing | Summary and module flashcards are grounded and omit assessment keys. |
-| T-017 | Drafts | Five to ten questions, instructor usability rubric, deny student access before approval | 5–10 transcript-based questions remain draft until owned review and approval. |
-| T-018 | Personalization | Grade correction, dedup, three bands, topic/course recommendations and personalized plan | Deterministic event replay yields expected mastery band, approved recommendations and history-based study steps. |
-| T-019 | Admin | Approve/reject, role changes, suspend/delete, revocation and audit | Admin reviews pending items, changes roles and suspends/deletes accounts; sessions revoked and audit rows present. |
-| T-020 | Reporting/moderation | Metric reconciliation, synthetic revenue, flagged queue and decisions | Metrics reconcile to fixtures and revenue is labeled synthetic; moderation tested against seeded reports until Day 24. |
+| T-016 | Learning tools | Enrollment denial, provider outage, active lecture/module source scope and answer-key fishing | Summary and module flashcards use authorized active sources; AI outage returns 503. |
+| T-017 | Drafts | Five to ten evidence-backed questions, idempotent retry, instructor review, learner denial before approval | AI drafts remain private until owner/admin review and approval; replay returns one draft. |
+| T-018 | Personalization | Finalized topic score replay, three mastery bands, cold-start/history study plan and recommendations | Deterministic quiz evidence updates mastery; plan exposes history-based steps and recommendations recheck visibility. |
+| T-019 | Admin | Pending approval queue, role changes, suspension/reactivation, revocation and audit | Admin review and account controls are scoped; changes revoke sessions and create audit rows. Deletion awaits DEC-14. |
+| T-020 | Reporting/moderation | Synthetic revenue reconciliation, queue denial, seeded report decision and replay | Metrics label synthetic revenue; admin moderation decisions are audited and repeated decisions conflict. |
 | T-021 | Community | Nested posts, report and moderation, announcements, in-app/email delivery and retry | Enrolled students can thread/reply/report; owner/admin moderation scoped; outbox replay gives one in-app notification and provider dedupe where supported. |
 | T-022 | Cross-cutting | WCAG manual/automated, themes/locales, cache invalidation and rate limit buckets | Both themes pass planned accessibility checks, default locale fallback works, cache expires/invalidates and all buckets throttle. |
 | T-023 | Release pipeline | CI outputs, staged digests, smoke, traces and secret isolation | CI checks all services and staging smoke records deployed digest. |

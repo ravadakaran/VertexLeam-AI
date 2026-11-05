@@ -97,7 +97,7 @@ Manual quizzes, attempts and scoring · Day 11 · P0
 Certificates, badges and streaks · Day 12 · P1/P2
 
 - Depends on [TASK-008](TASKS.md#task-008), [TASK-010](TASKS.md#task-010).
-- Planned paths `backend/src/modules/gamification`, `backend/src/jobs`, `frontend/src/pages/dashboard`.
+- Implementation [awards routes](../backend/src/modules/gamification/routes.ts), [certificate/job data migration](../backend/src/db/migrations/008_engagement_ai.sql), and student APIs at `/users/me/certificates`, `/users/me/badges`, `/users/me/streak`.
 - Requirements FR-S8, FR-S9, SCOPE-AWARDS, API-REWARDS, JOB-STREAK, JOB-CERT.
 - Acceptance. Completion produces one private PDF across retries; three milestone fixtures produce unique badge awards.
 
@@ -106,7 +106,7 @@ Certificates, badges and streaks · Day 12 · P1/P2
 Instructor analytics and buffer · Day 13–14 · P1
 
 - Depends on [TASK-008](TASKS.md#task-008), [TASK-010](TASKS.md#task-010).
-- Planned paths `backend/src/modules/courses`, `frontend/src/components/instructor`.
+- Implementation [analytics routes](../backend/src/modules/analytics/routes.ts) and `GET /instructor/courses/{id}/analytics`.
 - Requirements FR-I5, SCOPE-INSTRUCTOR, PLAN-W2.
 - Acceptance. Drop-off, score and time-on-task match deterministic fixtures; owner-only view.
 
@@ -115,7 +115,7 @@ Instructor analytics and buffer · Day 13–14 · P1
 AI runtime and provider adapter · Day 15 · P0
 
 - Depends on local toolchain.
-- Planned paths `ai-service/app/core`, `ai-service/app/main.py`, `infra`.
+- Implementation [FastAPI service](../ai-service/app/main.py), [service image](../ai-service/Dockerfile), and optional Compose profile `ai`.
 - Requirements STACK-AI, TOOLS-AI.
 - Acceptance. Authenticated internal calls work; readiness and timeout paths have offline tests.
 
@@ -124,7 +124,7 @@ AI runtime and provider adapter · Day 15 · P0
 Transcribe, parse, embed and publish · Day 16 · P0
 
 - Depends on [TASK-007](TASKS.md#task-007), [TASK-013](TASKS.md#task-013).
-- Planned paths `ai-service/app/rag`, `backend/src/jobs`, `backend/src/db`.
+- Implementation ingestion generations and chunk schema in [migration 008](../backend/src/db/migrations/008_engagement_ai.sql) and owner-scoped ingestion/publish routes in [AI routes](../backend/src/modules/ai/routes.ts).
 - Requirements JOB-TRANSCRIBE, JOB-EMBED.
 - Acceptance. Retry leaves one active source generation; vectors have 1536 dimensions and segments retain offsets.
 
@@ -133,7 +133,7 @@ Transcribe, parse, embed and publish · Day 16 · P0
 Course-scoped tutor · Day 17 · P0
 
 - Depends on [TASK-014](TASKS.md#task-014).
-- Planned paths `ai-service/app/routers/chat.py`, `frontend/src/components/ai-tutor`.
+- Implementation course-scoped chat, mode, history, tutor routes and FastAPI retrieval in [AI routes](../backend/src/modules/ai/routes.ts) and [AI service](../ai-service/app/main.py).
 - Requirements FR-A1, FR-A2, SCOPE-TUTOR, API-AI, SYS-RAG, KPI-LATENCY.
 - Acceptance. Good source cites correct lecture; identical cross-course text, injected instructions and provider outage are handled.
 
@@ -142,7 +142,7 @@ Course-scoped tutor · Day 17 · P0
 Summaries and flashcards · Day 18 · P0/P2
 
 - Depends on [TASK-014](TASKS.md#task-014).
-- Planned paths `ai-service/app/routers`, `frontend/src/components/ai-tutor`.
+- Implementation [AI tool endpoints](../ai-service/app/main.py), [course-scoped routes](../backend/src/modules/ai/routes.ts) and [learning tools UI](../frontend/src/pages/CourseWorkspace.tsx).
 - Requirements FR-A3, FR-A7, SCOPE-AI-TOOLS.
 - Acceptance. Summary and module flashcards are grounded and omit assessment keys.
 
@@ -151,7 +151,7 @@ Summaries and flashcards · Day 18 · P0/P2
 AI quiz review · Day 19 · P0/P1
 
 - Depends on [TASK-010](TASKS.md#task-010), [TASK-014](TASKS.md#task-014).
-- Planned paths `ai-service/app/routers/quiz_gen.py`, `backend/src/modules/quizzes`, `frontend/src/components/instructor`.
+- Implementation [quiz draft generation](../ai-service/app/main.py), [owned draft route](../backend/src/modules/ai/routes.ts), [review and publish flow](../backend/src/modules/quizzes/routes.ts) and [instructor UI](../frontend/src/pages/Assessments.tsx).
 - Requirements FR-A5, FR-I4, ROLE-INSTRUCTOR, KPI-QUIZ.
 - Acceptance. 5–10 transcript-based questions remain draft until owned review and approval.
 
@@ -160,7 +160,7 @@ AI quiz review · Day 19 · P0/P1
 Modes, mastery, study plan, recommendations and buffer · Day 20–21 · P1
 
 - Depends on [TASK-010](TASKS.md#task-010), [TASK-015](TASKS.md#task-015).
-- Planned paths `ai-service/app/recommendation`, `ai-service/app/routers/study_plan.py`, `backend/src/jobs`, `frontend/src/components/ai-tutor`.
+- Implementation [mastery and personalization APIs](../backend/src/modules/personalization/routes.ts), [quiz evidence updates](../backend/src/modules/quizzes/routes.ts), [schema](../backend/src/db/migrations/010_personalization_admin.sql) and [student UI](../frontend/src/pages/CourseWorkspace.tsx).
 - Requirements FR-S10, FR-A4, FR-A6, FR-A8, SCOPE-MODES, SCOPE-RECS, JOB-RECOMMEND, PLAN-W3.
 - Acceptance. Deterministic event replay yields expected mastery band, approved recommendations and history-based study steps.
 
@@ -169,7 +169,7 @@ Modes, mastery, study plan, recommendations and buffer · Day 20–21 · P1
 Governance UI and account lifecycle · Day 22 · P0
 
 - Depends on [TASK-004](TASKS.md#task-004), [TASK-005](TASKS.md#task-005).
-- Planned paths `backend/src/modules/admin`, `frontend/src/pages/admin-panel`.
+- Implementation [admin routes](../backend/src/modules/admin/routes.ts), [admin workspace](../frontend/src/pages/AdminPanel.tsx) and existing [course review](../backend/src/modules/courses/routes.ts). Account deletion remains gated by [DEC-14](DECISIONS.md#decisions-and-open-issues) until its retention policy is confirmed.
 - Requirements FR-AD1, FR-AD2, FR-AD4, SCOPE-ADMIN, API-ADMIN, ROLE-ADMIN.
 - Acceptance. Admin reviews pending items, changes roles and suspends/deletes accounts; sessions revoked and audit rows present.
 
@@ -178,7 +178,7 @@ Governance UI and account lifecycle · Day 22 · P0
 Platform metrics and moderation queue · Day 23 · P1/P2
 
 - Depends on [TASK-011](TASKS.md#task-011), [TASK-012](TASKS.md#task-012), [TASK-019](TASKS.md#task-019).
-- Planned paths `backend/src/modules/admin`, `frontend/src/pages/admin-panel`.
+- Implementation [platform analytics](../backend/src/modules/analytics/routes.ts), [moderation queue](../backend/src/modules/admin/routes.ts), [synthetic reporting schema](../backend/src/db/migrations/010_personalization_admin.sql) and [admin workspace](../frontend/src/pages/AdminPanel.tsx).
 - Requirements FR-AD3.
 - Acceptance. Metrics reconcile to fixtures and revenue is labeled synthetic; moderation tested against seeded reports until Day 24.
 

@@ -8,6 +8,8 @@ import { parse, sendResource, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
 import { conflict, invalid, keySchema, missing, moduleScope, pagination, replay, revisionSchema, text } from '../learning/scope.ts'
 import type { Profile } from '../../types.ts'
+import { recordActivity } from '../gamification/routes.ts'
+import { recordQuizMastery } from '../personalization/routes.ts'
 
 export const quizzes = Router()
 const author = [authenticate, requireRole('instructor', 'admin')]
@@ -149,6 +151,7 @@ quizzes.get('/quizzes/:id/review', ...author, async (req, res) => {
     return { quiz: quizView(quiz, latest), questions: latest.questions.map(q => ({
       question_text: q.question_text, question_type: q.question_type, max_points: q.max_points,
       ...(q.rubric && { rubric: q.rubric }), ...(q.topic_id && { topic_id: q.topic_id }),
+      ...(Array.isArray((q as any).source_chunks) && { source_chunks: (q as any).source_chunks }),
       ...(q.difficulty && { difficulty: q.difficulty }),
       ...(q.options && { options: q.options.map(({ option_text, is_correct }) => ({ option_text, is_correct })) })
     })) }
@@ -281,8 +284,13 @@ quizzes.post('/attempts/:id/submit', ...student, async (req, res) => {
       const objective = maximum ? percent(earned, maximum) : null
       const { rows: [updated] } = await client.query<Attempt>(`
         UPDATE quiz_attempts SET status=$2,submitted_at=clock_timestamp(),answers=$3,points=$4,
-          objective_score=$5,score=$6,revision=revision+1 WHERE id=$1 RETURNING *
+          objective_score=$5,score=$6,graded_at=CASE WHEN $2='graded' THEN clock_timestamp() END,revision=revision+1 WHERE id=$1 RETURNING *
       `, [attemptId, manual ? 'pending_review' : 'graded', JSON.stringify(body.answers), scored, objective, manual ? null : objective])
+      if (!manual) await recordQuizMastery(client, req.user!.id, attemptId, questions, scored)
+      if (!manual && objective === 100) {
+        await client.query("INSERT INTO learner_badges(user_id,badge_key) VALUES($1,'perfect_quiz') ON CONFLICT DO NOTHING", [req.user!.id])
+      }
+      await recordActivity(req.user!.id, client)
       return attemptView(updated)
     })
   })
@@ -304,6 +312,11 @@ quizzes.put('/attempts/:id/grade', ...author, async (req, res) => {
     const { rows: [updated] } = await client.query<Attempt>(`
       UPDATE quiz_attempts SET status='graded',score=$2,points=$3,revision=revision+1 WHERE id=$1 RETURNING *
     `, [attemptId, percent(earned, maximum), scored])
+    await recordQuizMastery(client, attempt.user_id, attemptId, questions, scored)
+    await client.query('UPDATE quiz_attempts SET graded_at=now() WHERE id=$1', [attemptId])
+    if (percent(earned, maximum) === 100) {
+      await client.query("INSERT INTO learner_badges(user_id,badge_key) VALUES($1,'perfect_quiz') ON CONFLICT DO NOTHING", [attempt.user_id])
+    }
     await client.query(`
       INSERT INTO audit_logs(actor_id,action,entity,entity_id,metadata) VALUES($1,'quiz.grade','attempt',$2,$3)
     `, [req.user!.id, attemptId, { revision: updated.revision, correlation_id: req.requestId }])

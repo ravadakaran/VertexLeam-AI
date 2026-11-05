@@ -17,6 +17,33 @@ type Annotation = { id: string; timestamp_seconds: number; content?: string }
 type TutorSession = { id: string; course_id: string; mode: string }
 type TutorReply = { reply: string; mode: string; sources: Array<{ lecture_id: string; lecture_title: string; timestamp_seconds?: number }> }
 type CourseAnalytics = { starts: number; completes: number; average_quiz_score: number | null; time_on_task_seconds: number; dropoff_percent: number | null }
+type StudyCards = { summary?: string; sources?: Array<{lecture_id:string;lecture_title:string;timestamp_seconds?:number}>; items?: Array<{question:string;answer:string}> }
+
+function PersonalizationPanel(){
+  const mastery=useData<{items:Array<{topic_id:string;name:string;score:number;band:string}>}>('/users/me/mastery')
+  const plan=useData<{steps:Array<{order:number;course_title:string;topic:string;action:string;reason:string;mastery:number}>}>('/users/me/study-plan')
+  const recommendations=useData<{items:Array<{course_id:string;title:string;score:number;reason:string}>}>('/users/me/recommendations')
+  return <section className="feature-section space-y-3"><h2 className="text-lg font-bold">Your study plan</h2>{plan.data?.steps.map(step=><p key={step.order} className="text-sm"><strong>{step.order}. {step.topic}</strong> · {step.course_title}<br/>{step.action} <span className="text-slate-500">({step.reason})</span></p>)}
+    {!!mastery.data?.items.length&&<div><h3 className="text-sm font-bold">Topic mastery</h3>{mastery.data.items.map(topic=><p key={topic.topic_id} className="text-xs text-slate-600">{topic.name}: {Math.round(topic.score*100)}% · {topic.band}</p>)}</div>}
+    {!!recommendations.data?.items.length&&<div><h3 className="text-sm font-bold">Recommended courses</h3>{recommendations.data.items.map(item=><p key={item.course_id} className="text-xs text-slate-600">{item.title} · {item.reason}</p>)}</div>}
+    {(plan.error||mastery.error||recommendations.error)&&<p role="alert" className="text-xs">{plan.error||mastery.error||recommendations.error}</p>}
+  </section>
+}
+
+function ModuleLearningTools({moduleId,lectures}:{moduleId:string;lectures:Lecture[]}){
+  const [result,setResult]=useState<StudyCards>(),[error,setError]=useState(''),[busy,setBusy]=useState('')
+  async function load(kind:string,path:string){setBusy(kind);setError('');setResult(undefined);try{setResult(await api<StudyCards>(path,json({})))}catch(failure){setError(String(failure))}finally{setBusy('')}}
+  return <div className="mt-3 p-3 rounded-lg bg-indigo-50/50 border border-indigo-100 space-y-2">
+    <div className="flex flex-wrap gap-2"><span className="text-xs font-bold text-slate-700 self-center">AI study tools</span>
+      {lectures.map(item=><button key={item.id} type="button" disabled={!!busy} className="secondary text-xs py-1 px-2" onClick={()=>void load('summary','/ai/lectures/'+item.id+'/summarize')}>{busy==='summary'?'Working…':'Summarize lecture'}</button>)}
+      <button type="button" disabled={!!busy} className="secondary text-xs py-1 px-2" onClick={()=>void load('cards','/ai/modules/'+moduleId+'/flashcards')}>{busy==='cards'?'Working…':'Generate module flashcards'}</button>
+    </div>
+    {error&&<p role="alert" className="text-xs text-rose-700">{error}</p>}
+    {result?.summary&&<p className="text-sm whitespace-pre-wrap text-slate-700">{result.summary}</p>}
+    {!!result?.sources?.length&&<p className="text-xs text-slate-500">Sources: {result.sources.map(source=>source.lecture_title+(source.timestamp_seconds!==undefined?` at ${source.timestamp_seconds}s`:'' )).join(' · ')}</p>}
+    {result?.items?.map((item,index)=><details key={index} className="p-2 bg-white rounded border border-slate-200"><summary className="text-sm font-semibold">{item.question}</summary><p className="text-sm text-slate-700 mb-0">{item.answer}</p></details>)}
+  </div>
+}
 
 function formatSeconds(seconds: number): string {
   const mins = Math.floor(seconds / 60)
@@ -88,7 +115,7 @@ function CourseTutor({ courseId }: { courseId: string }) {
       {reply && (
         <div className="mt-5 p-4 rounded-xl bg-white border border-indigo-100 shadow-xs space-y-3">
           <div className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
-            <span>💡</span> Tutor Explanation ({reply.mode})
+            <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6m-5 4h4m-5.5-7.2A7 7 0 1 1 15.5 15c-.8.6-1.2 1.3-1.3 2h-4.4c-.1-.7-.5-1.4-1.3-2Z"/></svg> Tutor Explanation ({reply.mode})
           </div>
           <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed m-0">{reply.reply}</p>
           {reply.sources.length > 0 && (
@@ -97,7 +124,7 @@ function CourseTutor({ courseId }: { courseId: string }) {
               <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
                 {reply.sources.map((source, index) => (
                   <li key={source.lecture_id + index} className="text-xs px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-700 font-medium">
-                    📖 {source.lecture_title}{source.timestamp_seconds !== undefined ? ` at ${source.timestamp_seconds}s` : ''}
+                    <svg aria-hidden="true" className="inline h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Zm0 0V21"/></svg>{source.lecture_title}{source.timestamp_seconds !== undefined ? ` at ${source.timestamp_seconds}s` : ''}
                   </li>
                 ))}
               </ul>
@@ -462,6 +489,8 @@ export function CourseWorkspace({ author = false }: { author?: boolean }) {
               ))}
             </ul>
 
+            {!author&&<ModuleLearningTools moduleId={module.id} lectures={module.lectures} />}
+
             {author && (
               <div className="mt-4 pt-3 border-t border-slate-100">
                 <ActionForm label="Upload lecture" onSubmit={async data => {
@@ -502,7 +531,7 @@ export function CourseWorkspace({ author = false }: { author?: boolean }) {
 
       {lecture && <Player key={lecture.id} lecture={lecture} />}
 
-      {author ? <AnalyticsPanel courseId={current.id} /> : <CourseTutor courseId={current.id} />}
+      {author ? <AnalyticsPanel courseId={current.id} /> : <><CourseTutor courseId={current.id} /><PersonalizationPanel /></>}
 
       <Assignments courseId={current.id} author={author} />
     </div>

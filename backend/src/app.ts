@@ -10,6 +10,11 @@ import { courses, enrollments } from './modules/courses/routes.ts'
 import { learning } from './modules/learning/routes.ts'
 import { assignments } from './modules/assignments/routes.ts'
 import { quizzes } from './modules/quizzes/routes.ts'
+import { gamification } from './modules/gamification/routes.ts'
+import { analytics } from './modules/analytics/routes.ts'
+import { ai } from './modules/ai/routes.ts'
+import { admin } from './modules/admin/routes.ts'
+import { personalization } from './modules/personalization/routes.ts'
 
 export const app = express()
 app.disable('x-powered-by')
@@ -19,7 +24,7 @@ app.use((req, res, next) => {
   res.set('X-Request-Id', req.requestId)
   next()
 })
-app.use(express.json({ limit: '32kb' }))
+app.use(express.json({ limit: '2mb' }))
 app.get('/health/live', (req, res) => res.json({ status: 'ok' }))
 app.get('/health/ready', async (req, res) => {
   try {
@@ -35,6 +40,11 @@ app.use('/api/v1/enrollments', enrollments)
 app.use('/api/v1', learning)
 app.use('/api/v1', assignments)
 app.use('/api/v1', quizzes)
+app.use('/api/v1', gamification)
+app.use('/api/v1', analytics)
+app.use('/api/v1', ai)
+app.use('/api/v1', admin)
+app.use('/api/v1', personalization)
 app.use((req, res, next) => next(new HttpError(404, 'NOT_FOUND', 'Route not found')))
 app.use((error: Error & { type?: string; code?: string }, req: Request, res: Response, next: NextFunction) => {
   if (res.headersSent) return next(error)

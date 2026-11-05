@@ -5,7 +5,7 @@ import { signOut, useSession, type Role } from '../auth'
 export const workspaces = {
   student: { title: 'Student', sections: { catalog: 'Course catalog', learning: 'My learning' } },
   instructor: { title: 'Instructor', sections: { courses: 'My courses' } },
-  admin: { title: 'Admin', sections: { approvals: 'Course approvals', users: 'Users' } }
+  admin: { title: 'Admin', sections: { approvals: 'Course approvals', users: 'Users', metrics: 'Platform metrics', moderation: 'Moderation queue' } }
 } as const
 
 function RoleBadge({ role }: { role: Role }) {
@@ -79,7 +79,8 @@ export function Workspace({ role }: { role: Role }) {
   const userInitial = user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="app-shell min-h-screen flex flex-col bg-slate-50">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="flex items-center justify-between border-b border-slate-200 bg-white/90 backdrop-blur-md px-6 py-3 sticky top-0 z-40 shadow-xs">
         <Link className="brand inline-flex items-center gap-2.5 text-slate-900 font-extrabold text-lg tracking-tight no-underline hover:text-indigo-600 transition-colors" to={`/${role}`}>
           <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-sm shadow-indigo-500/20">
@@ -146,7 +147,7 @@ export function Workspace({ role }: { role: Role }) {
           )}
         </nav>
 
-        <main className="p-8 max-w-5xl">
+        <main id="main-content" tabIndex={-1} className="p-8 max-w-5xl">
           <Outlet />
         </main>
       </div>

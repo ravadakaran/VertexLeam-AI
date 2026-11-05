@@ -67,9 +67,16 @@ The [OpenAPI 3.0 contract](api-spec.yaml) contains all 40 documented §8 operati
 | PUT | `/attempts/{id}/grade` | Proposed | owner | 200 |
 | GET | `/users/me/certificates` | Proposed | student | 200 |
 | GET | `/certificates/{id}/download` | Proposed | self | 200 |
+| GET | `/users/me/badges` | TASK-011 | student | 200 |
+| GET | `/users/me/streak` | TASK-011 | student | 200 |
 | GET | `/ai/jobs/{id}` | Proposed | owner | 200 |
 | GET | `/ai/chat/sessions/{id}/messages` | Proposed | tutor | 200 |
 | GET | `/instructor/courses/{id}/analytics` | Proposed | owner | 200 |
+| GET | `/admin/analytics/overview` | TASK-012 | admin | 200 |
+| POST | `/ai/lectures/{id}/ingest` | TASK-014 | owner | 202 |
+| POST | `/ai/jobs/{id}/publish` | TASK-014 | owner | 200 |
+| GET | `/ai/jobs/{id}` | TASK-014 | owner/member | 200 |
+| GET | `/ai/health` | TASK-013 | public | 200/503 |
 | DELETE | `/admin/users/{id}` | Proposed | admin | 204 |
 | GET | `/courses/{id}/threads` | Proposed | member | 200 |
 | POST | `/courses/{id}/threads` | Proposed | member | 201 |
@@ -146,3 +153,14 @@ TASK-006 adds the instructor course list/detail and the browser enrollment walkt
 TASK-008 adds progress, notes and bookmarks. Heartbeats merge valid ranges as a union and update resume by playback session and sequence. Lecture completion requires 100% unique coverage. A replayed event cannot add coverage. Annotations are private to their author. See the [progress service](../backend/src/modules/learning/progress.ts).
 
 TASK-009 adds assignment creation, private submission, rubric grading and signed download. TASK-010 adds quiz drafts, versioned review, learner attempts, objective scoring and short-answer review. The attempt list gives learners their own status and scores. It gives the owning instructor or admin the pending short-answer review queue. See the [assignment routes](../backend/src/modules/assignments/routes.ts), [quiz routes](../backend/src/modules/quizzes/routes.ts) and [integration checks](../backend/test/learning.test.js).
+
+## AI learning tools, personalization and administration
+
+- `POST /ai/lectures/{id}/summarize` requires an enrolled student and returns a transcript-only summary with validated source chunk references.
+- `POST /ai/modules/{id}/flashcards` requires an enrolled student and uses active chunks from that module only.
+- `POST /ai/modules/{id}/quiz-draft` requires the course instructor or admin and an `Idempotency-Key`; it creates a private AI quiz draft with 5–10 evidence-checked questions. A retry returns the same draft. Existing `GET /quizzes/{id}/review` and `POST /quizzes/{id}/review` provide instructor review and approval.
+- `POST /courses/{id}/topics` is owner/admin scoped. `GET /users/me/mastery`, `/users/me/study-plan` and `/users/me/recommendations` are learner-private. Finalized quiz topic scores feed deterministic mastery replay.
+- `GET /admin/courses/pending`, `GET /admin/users`, `PUT /admin/users/{id}/roles` and `POST /admin/users/{id}/suspend` require admin. Role and suspension changes revoke sessions and write audit rows.
+- `GET /admin/analytics/overview` reports DAU, enrollments, completion rate and synthetic payment revenue. `GET /admin/moderation/reports` and `POST /admin/moderation/reports/{id}/review` require admin.
+
+`DELETE /admin/users/{id}` is prepared behind `ACCOUNT_DELETION_POLICY_CONFIRMED=true`. It is unavailable until DEC-14 is confirmed; the environment flag is not itself policy approval. The proposal anonymizes profile PII immediately, removes private learner content, revokes sessions, and retains a pseudonymous tombstone and redacted audit history. AI provider calls still require the DEC-09 `AI_OUTBOUND_DATA_APPROVED=true` operational gate.

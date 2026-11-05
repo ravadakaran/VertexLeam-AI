@@ -1569,8 +1569,7 @@ paths:
       summary: Start a chat session scoped to a course
       operationId: post_ai_chat_sessions
       x-prd: '8.5'
-      description: Enrolled student or owning instructor reviewer, with session ownership on existing
-        sessions. AI chat bucket applies. Retry with the same key and equivalent payload.
+      description: Enrolled student owning the new course-scoped session. AI chat bucket applies.
       parameters:
       - name: Idempotency-Key
         in: header
@@ -1611,8 +1610,6 @@ paths:
                 course_id:
                   type: string
                   format: uuid
-                mode:
-                  $ref: '#/components/schemas/Mode'
               required:
               - course_id
   /ai/chat/sessions/{id}/messages:
@@ -1620,8 +1617,7 @@ paths:
       summary: Send a message, get RAG-grounded AI reply
       operationId: post_ai_chat_sessions_id_messages
       x-prd: '8.5'
-      description: Enrolled student or owning instructor reviewer, with session ownership on existing
-        sessions. AI chat bucket applies. Retry with the same key and equivalent payload.
+      description: Enrolled student who owns the session. AI calls require approved provider configuration.
       parameters:
       - name: id
         in: path
@@ -1630,13 +1626,6 @@ paths:
           type: string
           format: uuid
         description: Course or resource identifier resolved in the route context
-      - name: Idempotency-Key
-        in: header
-        required: true
-        schema:
-          type: string
-          minLength: 8
-          maxLength: 128
       responses:
         '200':
           description: Success
@@ -1679,10 +1668,15 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 4000
+                request_id:
+                  type: string
+                  format: uuid
               required:
               - message
+              - request_id
             example:
               message: Why does quicksort degrade to O(n^2) on sorted input?
+              request_id: 00000000-0000-4000-8000-000000000001
     get:
       summary: get ai chat sessions id messages
       operationId: get_ai_chat_sessions_id_messages
@@ -3399,7 +3393,7 @@ paths:
       summary: get certificates id download
       operationId: get_certificates_id_download
       x-prd: Proposed
-      description: Active resource owner with enrollment where course-scoped.
+      description: Active student who owns the certificate. Returns a private PDF directly; issuance remains disabled until DEC-02 is confirmed.
       parameters:
       - name: id
         in: path
@@ -3412,9 +3406,10 @@ paths:
         '200':
           description: Success
           content:
-            application/json:
+            application/pdf:
               schema:
-                $ref: '#/components/schemas/FileLink'
+                type: string
+                format: binary
         '400':
           $ref: '#/components/responses/Error400'
         '401':

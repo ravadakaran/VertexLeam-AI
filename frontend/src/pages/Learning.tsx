@@ -203,7 +203,9 @@ export function Learning({ overview = false }: { overview?: boolean }) {
             </div>
             {/* Streak Counter Jewel */}
             <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 shadow-xs">
-              <span className="text-xl">🔥</span>
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white text-orange-600" aria-hidden="true">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path strokeLinecap="round" strokeLinejoin="round" d="M12 21c4.2 0 7-2.8 7-6.5 0-2.8-1.7-4.7-4.4-7.5.2 2.1-.8 3.3-1.7 3.8C12.7 7.8 10.9 5.6 8 3c.5 4-3 6.8-3 11.3C5 18.3 7.8 21 12 21Z"/><path strokeLinecap="round" strokeLinejoin="round" d="M12 21c-1.7-1.1-2.3-2.2-2.3-3.6 0-1.3.8-2.4 2.2-3.9 0 1.2.7 1.9 1.4 2.3.9 1.9.4 3.9-1.3 5.2Z"/></svg>
+              </span>
               <div>
                 <p className="text-sm font-extrabold text-amber-900 m-0 leading-tight">
                   Current streak: {streak?.streak ?? 0} days
@@ -220,7 +222,7 @@ export function Learning({ overview = false }: { overview?: boolean }) {
               <ul className="flex flex-wrap gap-2.5 list-none p-0 m-0">
                 {badges.map(item => (
                   <li key={item.badge_key} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs font-semibold shadow-2xs">
-                    <span className="text-indigo-600">★</span>
+                    <svg aria-hidden="true" className="h-4 w-4 text-blue-700" viewBox="0 0 20 20" fill="currentColor"><path d="m10 1.8 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L10 1.8Z"/></svg>
                     {item.badge_key?.replaceAll('_', ' ')}
                   </li>
                 ))}

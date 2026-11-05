@@ -5,7 +5,7 @@ type TokenType = 'access' | 'refresh'
 type Claims = { sub: string; sid: string; jti: string; type: TokenType }
 type Credentials = { email: string; password: string }
 type Registration = Credentials & { full_name: string }
-type UserRow = Omit<Profile, 'role' | 'revision'> & { revision: number; password_hash: string }
+type UserRow = Omit<Profile, 'role' | 'revision'> & { revision: number; password_hash: string; deleted_at: Date | null }
 import argon2 from 'argon2'
 import jwt from 'jsonwebtoken'
 import { createHash, randomUUID } from 'node:crypto'
@@ -79,7 +79,7 @@ function tokens(user: UserRow, sid: string, refreshToken: string) {
 export async function login({ email, password }: Credentials) {
   const candidate = await readUser(db, 'email', email)
   if (!await argon2.verify(candidate?.password_hash ?? dummyPassword, password) ||
-      !candidate?.is_active) throw unauthorized()
+      !candidate?.is_active || candidate.deleted_at) throw unauthorized()
   return transaction(async client => {
     const user = await readUser(client, 'id', candidate.id, true)
     if (!user?.is_active || !user.roles.length || user.password_hash !== candidate.password_hash) throw unauthorized()
@@ -95,11 +95,11 @@ export async function login({ email, password }: Credentials) {
 
 export async function sessionUser(claims: Pick<Claims, 'sub' | 'sid'>) {
   const user = await readUser(db, 'id', claims.sub)
-  if (!user?.is_active || !user.roles.length) throw unauthorized()
+    if (!user?.is_active || user.deleted_at || !user.roles.length) throw unauthorized()
   const { rowCount } = await db.query(`
     SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = $1 AND s.user_id = $2 AND s.user_revision = u.revision
-      AND u.revision = $3 AND u.is_active AND s.expires_at > now() AND s.revoked_at IS NULL
+      AND u.revision = $3 AND u.is_active AND u.deleted_at IS NULL AND s.expires_at > now() AND s.revoked_at IS NULL
   `, [claims.sid, user.id, user.revision])
   if (!rowCount) throw unauthorized()
   return profile(user)
@@ -112,7 +112,7 @@ export async function refresh(token: string, claims: Claims) {
       SELECT * FROM sessions WHERE id = $1 AND user_id = $2
       AND expires_at > now() AND revoked_at IS NULL FOR UPDATE
     `, [claims.sid, claims.sub])
-    if (!session || !user?.is_active || !user.roles.length || session.user_revision !== user.revision) return null
+    if (!session || !user?.is_active || user.deleted_at || !user.roles.length || session.user_revision !== user.revision) return null
     if (session.refresh_hash !== hash(token)) {
       await client.query('UPDATE sessions SET revoked_at = now() WHERE id = $1', [claims.sid])
       return null
