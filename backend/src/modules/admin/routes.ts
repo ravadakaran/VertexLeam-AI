@@ -6,6 +6,7 @@ import { db, transaction } from '../../db/index.ts'
 import { HttpError, parse, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
 import { pagination } from '../learning/scope.ts'
+import { postView } from '../discussions/routes.ts'
 
 export const admin = Router()
 const onlyAdmin = [authenticate, requireRole('admin')]
@@ -92,7 +93,10 @@ admin.delete('/admin/users/:id', ...onlyAdmin, async (req, res) => {
     await client.query('DELETE FROM mastery_events WHERE user_id=$1',[id])
     await client.query('DELETE FROM learner_mastery WHERE user_id=$1',[id])
     await client.query('DELETE FROM learner_recommendations WHERE user_id=$1',[id])
+    await client.query('DELETE FROM notifications WHERE user_id=$1',[id])
     await client.query('UPDATE synthetic_payments SET user_id=NULL WHERE user_id=$1',[id])
+    await client.query(`UPDATE post_reports SET reporter_id=NULL,reviewed_by=NULL,
+      reason=CASE WHEN reporter_id=$1 THEN '[redacted on account deletion]' ELSE reason END WHERE reporter_id=$1 OR reviewed_by=$1`,[id])
     await client.query(`UPDATE moderation_reports SET reporter_id=NULL,reviewed_by=NULL,
       reason=CASE WHEN reporter_id=$1 THEN '[redacted on account deletion]' ELSE reason END WHERE reporter_id=$1 OR reviewed_by=$1`,[id])
     await client.query('UPDATE course_approvals SET comment=NULL WHERE reviewed_by=$1',[id])
@@ -108,6 +112,29 @@ admin.delete('/admin/users/:id', ...onlyAdmin, async (req, res) => {
   res.set('Cache-Control','no-store').json(result)
 })
 
+admin.get('/admin/moderation/flagged-posts', ...onlyAdmin, async (req, res) => {
+  const { page, limit } = parse(pagination, req.query)
+  const { rows: [result] } = await db.query(`
+    WITH flagged AS MATERIALIZED (
+      SELECT p.id, p.thread_id, p.parent_id, p.content, p.visibility, p.created_at, p.revision
+      FROM discussion_posts p
+      WHERE p.is_flagged = true OR EXISTS (
+        SELECT 1 FROM post_reports pr WHERE pr.post_id = p.id AND pr.status = 'pending'
+      )
+    ), items AS (
+      SELECT * FROM flagged ORDER BY created_at DESC, id LIMIT $1 OFFSET $2
+    )
+    SELECT (SELECT count(*)::int FROM flagged) AS total,
+      coalesce(jsonb_agg(items ORDER BY created_at DESC, id), '[]') AS items FROM items
+  `, [limit, (page - 1) * limit])
+  res.set('Cache-Control', 'private, no-store').json({
+    page,
+    limit,
+    total: result.total,
+    items: result.items.map((row: Parameters<typeof postView>[0]) => postView(row, true))
+  })
+})
+
 admin.get('/admin/moderation/reports', ...onlyAdmin, async (_req, res) => {
   const { rows } = await db.query(`SELECT id,reporter_id,entity_type,entity_id,reason,status,created_at
     FROM moderation_reports WHERE status='pending' ORDER BY created_at,id LIMIT 100`)
@@ -118,10 +145,23 @@ admin.post('/admin/moderation/reports/:id/review', ...onlyAdmin, async (req, res
   const id = parse(uuid, req.params.id), { decision } = z.strictObject({ decision: z.enum(['actioned','dismissed']) }).parse(req.body)
   const report=await transaction(async client=>{
     const { rows: [updated] } = await client.query(`UPDATE moderation_reports SET status=$2,reviewed_by=$3,reviewed_at=now()
-      WHERE id=$1 AND status='pending' RETURNING id,status,reviewed_by,reviewed_at`, [id, decision, req.user!.id])
+      WHERE id=$1 AND status='pending' RETURNING id,entity_type,entity_id,status,reviewed_by,reviewed_at`, [id, decision, req.user!.id])
     if (!updated) throw new HttpError(409, 'CONFLICT', 'Report is missing or already reviewed')
+    if (updated.entity_type === 'content') {
+      await client.query(`
+        UPDATE post_reports SET status=$2,reviewed_by=$3,reviewed_at=now()
+        WHERE status='pending' AND (moderation_report_id=$1 OR post_id=$4)
+      `, [id, decision, req.user!.id, updated.entity_id])
+      await client.query(`
+        UPDATE discussion_posts
+        SET visibility = CASE WHEN $2 = 'actioned' THEN 'hidden' ELSE visibility END,
+            is_flagged = EXISTS (SELECT 1 FROM post_reports pr WHERE pr.post_id = $1 AND pr.status = 'pending'),
+            revision = revision + 1
+        WHERE id = $1
+      `, [updated.entity_id, decision])
+    }
     await client.query("INSERT INTO audit_logs(actor_id,action,entity,entity_id,metadata) VALUES($1,'moderation.review','report',$2,$3)", [req.user!.id, id, { decision, correlation_id: req.requestId }])
-    return updated
+    return { id: updated.id, status: updated.status, reviewed_by: updated.reviewed_by, reviewed_at: updated.reviewed_at }
   })
   res.json(report)
 })

@@ -1,0 +1,12 @@
+node_modules
+ai-service/.venv
+.env
+.env.*
+!.env.example
+.git
+test-results
+playwright-report
+frontend/dist
+Document
+design-system
+

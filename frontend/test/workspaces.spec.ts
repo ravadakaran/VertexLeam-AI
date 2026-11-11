@@ -7,6 +7,11 @@ test('T-005 all fixture roles reach their workspace and protected URLs enforce a
   if (!password) throw new Error('Seed synthetic accounts with DEMO_PASSWORD')
   await page.goto('/admin/users')
   await expect(page).toHaveURL('/login')
+  await expect(page.getByRole('button', { name: 'Show password' })).toBeVisible()
+  await page.getByRole('button', { name: 'Show password' }).click()
+  await expect(page.locator('input[name="password"]')).toHaveAttribute('type', 'text')
+  await page.getByRole('button', { name: 'Hide password' }).click()
+  await expect(page.locator('input[name="password"]')).toHaveAttribute('type', 'password')
 
   for (const [role, label, section] of [
     ['student', 'Student', 'Course catalog'],
@@ -14,7 +19,7 @@ test('T-005 all fixture roles reach their workspace and protected URLs enforce a
     ['admin', 'Admin', 'Course approvals']
   ]) {
     await page.getByLabel('Email').fill(`${role}@vertexlearn.test`)
-    await page.getByLabel('Password').fill(password)
+    await page.getByLabel('Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page).toHaveURL(`/${role}`)
     await expect(page.getByRole('heading', { name: `${label} workspace` })).toBeVisible()

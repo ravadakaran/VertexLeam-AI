@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
 import { z } from 'zod'
 import { db, transaction } from '../../db/index.ts'
+import { limit } from '../../cache.ts'
 import { HttpError, parse, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
 import { courseView } from '../courses/service.ts'
@@ -51,6 +52,7 @@ learning.post('/courses/:id/modules', ...author, async (req, res) => {
 })
 
 learning.post('/modules/:id/lectures', ...author, async (req: Request, res: Response, next: NextFunction) => {
+  await limit(res, 'upload', req.user!.id, 20)
   await moduleScope(db, req.user!, id(req), 'author')
   key(req)
   if (!req.is('multipart/form-data')) throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Use multipart/form-data')

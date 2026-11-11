@@ -2,8 +2,10 @@ import { Router } from 'express'
 import type { Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { db, transaction } from '../../db/index.ts'
+import { limit } from '../../cache.ts'
 import { HttpError, parse, sendResource, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
+import { invalidateLeaderboard } from '../gamification/routes.ts'
 import { courseScope, conflict, digest, invalid, keySchema, missing, pagination, replay, revisionSchema, text, type Sql } from '../learning/scope.ts'
 import { grant, grantUser } from '../learning/grants.ts'
 import { limitUploads, upload, validateFile } from '../learning/uploads.ts'
@@ -91,6 +93,7 @@ assignments.get('/courses/:id/assignments', ...member, async (req, res) => {
   res.set('Cache-Control', 'private, no-store').json({ ...result, page, limit })
 })
 assignments.post('/assignments/:id/submit', ...student, async (req: Request, res: Response, next: NextFunction) => {
+  await limit(res, 'upload', req.user!.id, 20)
   const assignment = await findAssignment(db, id(req))
   await courseScope(db, req.user!, assignment.course_id, 'learner')
   key(req)
@@ -139,8 +142,10 @@ assignments.get('/assignments/:id/submissions', ...member, async (req, res) => {
 })
 assignments.put('/submissions/:id/grade', ...author, async (req, res) => {
   const submissionId = id(req), revision = parse(revisionSchema, req.get('If-Match')), body = parse(grades, req.body)
+  let courseId: string | undefined
   const result = await transaction(async client => {
     const submission = await submissionScope(client, req.user!, submissionId, true)
+    courseId = submission.course_id
     const assignment = await findAssignment(client, submission.assignment_id)
     const scores = new Map(body.scores.map(score => [score.criterion_id, score.points]))
     if (scores.size !== body.scores.length || scores.size !== assignment.rubric.length ||
@@ -161,6 +166,7 @@ assignments.put('/submissions/:id/grade', ...author, async (req, res) => {
     `, [req.user!.id, row.id, { revision: row.revision, correlation_id: req.requestId }])
     return submissionView(row)
   })
+  if (courseId) await invalidateLeaderboard(courseId)
   sendResource(res.set('Cache-Control', 'private, no-store'), result)
 })
 assignments.get('/submissions/:id/file', ...member, async (req, res) => {

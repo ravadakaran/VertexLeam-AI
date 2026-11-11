@@ -1,22 +1,26 @@
 import type { Pagination } from '../../types.ts'
 import { db, transaction } from '../../db/index.ts'
 import { HttpError } from '../../http.ts'
+import { invalidateLeaderboard } from '../gamification/routes.ts'
 
-const fields = 'e.id, e.course_id, e.progress_percent::float8, e.enrolled_at'
+const fields = 'e.id, e.course_id, c.title AS course_title, e.progress_percent::float8, e.enrolled_at'
 
-export function enroll(userId: string, courseId: string) {
-  return transaction(async client => {
+export async function enroll(userId: string, courseId: string) {
+  const row = await transaction(async client => {
     const visible = await client.query("SELECT id FROM courses WHERE id = $1 AND status = 'approved' FOR SHARE", [courseId])
     if (!visible.rowCount) throw new HttpError(404, 'NOT_FOUND', 'Course not found')
     await client.query(`
       INSERT INTO enrollments(user_id, course_id) VALUES ($1, $2)
       ON CONFLICT (user_id, course_id) DO NOTHING
     `, [userId, courseId])
-    const { rows: [row] } = await client.query(`
-      SELECT ${fields} FROM enrollments e WHERE e.user_id = $1 AND e.course_id = $2
+    const { rows: [enrolled] } = await client.query(`
+      SELECT ${fields} FROM enrollments e JOIN courses c ON c.id = e.course_id
+      WHERE e.user_id = $1 AND e.course_id = $2
     `, [userId, courseId])
-    return row
+    return enrolled
   })
+  await invalidateLeaderboard(courseId)
+  return row
 }
 
 export async function listEnrollments(userId: string, { page, limit }: Pagination) {

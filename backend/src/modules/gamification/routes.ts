@@ -2,12 +2,93 @@ import { Router } from 'express'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { db } from '../../db/index.ts'
 import type { PoolClient } from 'pg'
+import { cacheDel, cacheGet, cacheSet, singleFlight } from '../../cache.ts'
 import { HttpError, parse, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
+import { observeCacheEvent } from '../../utils/metrics.ts'
+import { courseScope, missing, pagination } from '../learning/scope.ts'
 
 export const gamification = Router()
 const student = [authenticate, requireRole('student')]
+const member = [authenticate, requireRole('student', 'instructor', 'admin')]
 const printable = (value: string) => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '?').slice(0, 100)
+const leaderboardKey = (courseId: string) => `vertexlearn:leaderboard:${courseId}`
+
+type LeaderEntry = {
+  display_name: string
+  rank: number
+  score: number
+}
+
+export async function invalidateLeaderboard(courseId: string) {
+  await cacheDel(leaderboardKey(courseId))
+  observeCacheEvent('leaderboard', 'invalidated')
+}
+
+gamification.get('/leaderboard/:courseId', ...member, async (req, res) => {
+  const courseId = parse(uuid, req.params.courseId)
+  const { page, limit } = parse(pagination, req.query)
+
+  const { rows: [course] } = await db.query<{ instructor_id: string }>('SELECT instructor_id FROM courses WHERE id = $1', [courseId])
+  if (!course) throw missing()
+  const authored = req.user!.roles.includes('admin') || (req.user!.roles.includes('instructor') && course.instructor_id === req.user!.id)
+  await courseScope(db, req.user!, courseId, authored ? 'author' : 'learner')
+
+  const key = leaderboardKey(courseId)
+  let leaders = await cacheGet<LeaderEntry[]>(key)
+  if (leaders) {
+    observeCacheEvent('leaderboard', 'hit')
+  } else {
+    observeCacheEvent('leaderboard', 'miss')
+    leaders = await singleFlight(key, async () => {
+      const { rows } = await db.query<LeaderEntry>(`
+        WITH quiz_scores AS (
+          SELECT qa.user_id, avg(qa.score)::float AS avg_quiz
+          FROM quiz_attempts qa
+          JOIN quizzes q ON q.id = qa.quiz_id
+          JOIN modules m ON m.id = q.module_id
+          WHERE m.course_id = $1 AND qa.status = 'graded' AND qa.score IS NOT NULL
+          GROUP BY qa.user_id
+        ), assign_scores AS (
+          SELECT s.user_id, avg(s.grade)::float AS avg_assign
+          FROM assignment_submissions s
+          JOIN assignments a ON a.id = s.assignment_id
+          WHERE a.course_id = $1 AND s.grade IS NOT NULL
+          GROUP BY s.user_id
+        ), scored AS (
+          SELECT u.full_name AS display_name,
+            e.enrolled_at,
+            u.id AS user_id,
+            least(100, greatest(0, round((
+              0.4 * e.progress_percent::float
+              + 0.4 * coalesce(q.avg_quiz, e.progress_percent::float)
+              + 0.2 * coalesce(a.avg_assign, q.avg_quiz, e.progress_percent::float)
+            )::numeric, 2)))::float AS score
+          FROM enrollments e
+          JOIN users u ON u.id = e.user_id
+          LEFT JOIN quiz_scores q ON q.user_id = e.user_id
+          LEFT JOIN assign_scores a ON a.user_id = e.user_id
+          WHERE e.course_id = $1 AND u.is_active AND u.deleted_at IS NULL
+        )
+        SELECT display_name,
+          row_number() OVER (ORDER BY score DESC, enrolled_at ASC, user_id ASC)::int AS rank,
+          score
+        FROM scored
+        ORDER BY rank ASC
+      `, [courseId])
+      await cacheSet(key, rows, 60)
+      return rows
+    })
+  }
+
+  const offset = (page - 1) * limit
+  res.set('Cache-Control', 'private, no-store').json({
+    page,
+    limit,
+    total: leaders.length,
+    items: leaders.slice(offset, offset + limit)
+  })
+})
 
 gamification.get('/users/me/streak', ...student, async (req, res) => {
   const { rows: [row] } = await db.query(`

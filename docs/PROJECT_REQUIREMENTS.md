@@ -49,8 +49,8 @@ Original IDs retain their PRD priorities. Derived IDs identify unnumbered baseli
 | SCOPE-INSTRUCTOR | 3.1 | Derived | Authoring, material upload and analytics (also TASK-004 and TASK-007) |
 | SCOPE-ADMIN | 3.1 | Derived | Account, role and course governance, analytics and moderation (also TASK-020 and TASK-021) |
 | SCOPE-FORUM | 3.1 | Derived | Course-threaded discussions |
-| SCOPE-NOTIFY | 3.1 | Derived | In-app and email notifications |
-| SCOPE-UI | 3.1 | Derived | Dark mode and basic i18n |
+| SCOPE-NOTIFY | 3.1 | Derived | In-app and email notifications, visible only while the recipient retains access to the approved course |
+| SCOPE-UI | 3.1 | Derived | Dark mode and English-only interface |
 | NFR-PERF | 6 | Derived | Non-AI API p95 below 300 ms under 100 concurrent users |
 | NFR-SCALE | 6 | Derived | Stateless horizontal service scaling behind load balancer |
 | NFR-AUTH | 6 | Derived | Hashed passwords, short-lived access JWT, refresh, RBAC and validated inputs |

@@ -187,25 +187,25 @@ Platform metrics and moderation queue · Day 23 · P1/P2
 Forum, announcements and notification delivery · Day 24 · P1/P2
 
 - Depends on [TASK-019](TASKS.md#task-019), [TASK-020](TASKS.md#task-020).
-- Planned paths `backend/src/modules/discussions`, `backend/src/modules/notifications`, `backend/src/jobs`, `frontend/src/components`.
+- Implementation [discussion & announcement routes](../backend/src/modules/discussions/routes.ts), [notification routes](../backend/src/modules/notifications/routes.ts), [outbox relay](../backend/src/jobs/outbox.ts), [email dispatcher](../backend/src/jobs/email.ts), [standalone worker](../backend/src/jobs/worker.ts), [migration 012](../backend/src/db/migrations/012_community_ops_cache.sql), [community panel](../frontend/src/components/CourseCommunity.tsx) and [notifications bell](../frontend/src/components/NotificationsPanel.tsx).
 - Requirements FR-I6, FR-AD5, SCOPE-FORUM, SCOPE-NOTIFY, JOB-NOTIFY.
-- Acceptance. Enrolled students can thread/reply/report; owner/admin moderation scoped; outbox replay gives one in-app notification and provider dedupe where supported.
+- Acceptance. Enrolled students can thread/reply/report; owner/admin moderation scoped; outbox replay gives one in-app notification and provider dedupe where supported. Course-scoped notification reads require current access to an approved course.
 
 ## TASK-022
 
-Accessibility, dark mode, locale scaffolding, caching and throttling · Day 25 · P0/P1
+Accessibility, dark mode, English-only interface, caching and throttling · Day 25 · P0/P1
 
 - Depends on [TASK-015](TASKS.md#task-015), [TASK-019](TASKS.md#task-019), [TASK-021](TASKS.md#task-021).
-- Planned paths `frontend/src/styles`, `frontend/src/utils`, `backend/src/middleware`, `backend/src/config`.
+- Implementation [theme stylesheet](../frontend/src/styles/theme.css), [theme store](../frontend/src/utils/theme.ts), [English interface strings](../frontend/src/utils/i18n.ts), [rate limiter](../backend/src/middleware/rateLimit.ts), [runtime config](../backend/src/config/env.ts), [Redis cache helper](../backend/src/cache.ts), [catalog caching](../backend/src/modules/courses/service.ts) and [cached leaderboard](../backend/src/modules/gamification/routes.ts).
 - Requirements SCOPE-UI, NFR-A11Y, NFR-CACHE, NFR-RATE, API-LIMIT, SYS-CACHE.
-- Acceptance. Both themes pass planned accessibility checks, default locale fallback works, cache expires/invalidates and all buckets throttle.
+- Acceptance. Both themes pass planned accessibility checks, the interface remains in English with no language selector, cache expires/invalidates and all buckets throttle. Automated WCAG contrast and landmark checks pass locally; manual screen-reader and keyboard assistive-technology audits remain planned.
 
 ## TASK-023
 
 Stage container release · Day 26 · P0
 
 - Depends on [TASK-018](TASKS.md#task-018), [TASK-022](TASKS.md#task-022).
-- Planned paths `infra`, `.github/workflows`, `backend/Dockerfile`, `ai-service/Dockerfile`.
+- Implementation [Compose stack](../infra/docker-compose.yml), [NGINX edge](../infra/nginx.conf), [CI workflow](../.github/workflows/ci.yml), [backend image](../backend/Dockerfile), [frontend image](../frontend/Dockerfile), [AI image](../ai-service/Dockerfile), [structured logger](../backend/src/utils/logger.ts), [Prometheus metrics](../backend/src/utils/metrics.ts) and Planned [ECS Fargate Terraform](../infra/terraform/main.tf). Cloud OIDC provisioning and staging digest deployment remain planned under [DEC-13](DECISIONS.md#decisions-and-open-issues).
 - Requirements NFR-SCALE, NFR-OBS, SYS-COMPONENTS, OPS-ENV, OPS-CI, OPS-INFRA, TOOLS-CLOUD, TOOLS-OPS.
 - Acceptance. CI checks all services and staging smoke records deployed digest.
 
@@ -214,7 +214,7 @@ Stage container release · Day 26 · P0
 Load, fault and security verification · Day 27 · P0
 
 - Depends on [TASK-023](TASKS.md#task-023).
-- Planned paths `backend/tests`, `ai-service/tests`, `infra`.
+- Implementation [ops and community integration suite](../backend/test/ops-and-community.test.js), [AI service unit tests](../ai-service/tests/test_main.py), [k6 100-VU script](../infra/load/k6-100vu.js) and [restore drills](../infra/scripts/restore-drill.ps1). Staging 100-VU benchmarks (`NFR-PERF`) and rolling 30-day uptime observation (`NFR-UPTIME`) remain planned / require observation.
 - Requirements NFR-PERF, NFR-UPTIME, NFR-PRIVACY, ROLE-ENFORCE, STACK-QA, OPS-SCALE, TOOLS-QA.
 - Acceptance. Archive load, denial, outage and restore evidence and fix release blockers.
 
@@ -223,7 +223,7 @@ Load, fault and security verification · Day 27 · P0
 Production demo and submission · Day 28 · P0
 
 - Depends on [TASK-024](TASKS.md#task-024).
-- Planned paths `backend/src/db/seeders`, `docs`, `.github/workflows/deploy.yml`.
+- Implementation [idempotent DSA demo seeder](../backend/src/db/seeders/dsa-demo.ts), [accessibility and community E2E](../frontend/test/accessibility-and-community.spec.ts), [promotion workflow](../.github/workflows/deploy.yml) and [evidence & verification docs](DEMO_AND_SUBMISSION.md). Hosted release promotion and live cohort KPI measurements remain planned / require observation.
 - Requirements PLAN-W4, OPS-ROLLBACK, KPI-COMPLETION, KPI-STREAK.
 - Acceptance. Promote smoke-tested digests, run all three role journeys and capture evidence and rollback target.
 

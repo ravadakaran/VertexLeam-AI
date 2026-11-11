@@ -4,7 +4,7 @@ Source sections refer to the [approved PRD](../Document/Project%20Document.docx)
 
 For TASK-001–005, the [implemented endpoint index](API_SPECIFICATION.md#foundation-endpoints), [test register](TESTING_STRATEGY.md#test-register) and [local evidence](DEMO_AND_SUBMISSION.md#foundation-verification) supplement the planned demo links below.
 
-For TASK-006–010, see the [learning and assessment endpoints](API_SPECIFICATION.md#learning-and-assessment-endpoints), [T-006–010](TESTING_STRATEGY.md#test-register) and [local verification](DEMO_AND_SUBMISSION.md#learning-and-assessment-verification).
+For TASK-006–010, see the [learning and assessment endpoints](API_SPECIFICATION.md#learning-and-assessment-endpoints), [T-006–010](TESTING_STRATEGY.md#test-register) and [local verification](DEMO_AND_SUBMISSION.md#learning-and-assessment-verification). For TASK-011–020, see [awards, analytics and AI verification](DEMO_AND_SUBMISSION.md#awards-analytics-and-ai-verification) and [offline AI service tests](../ai-service/tests/test_main.py). For TASK-021–025, see [community, caching, throttling and observability endpoints](API_SPECIFICATION.md#community-caching-throttling-and-observability), [T-021–025](TESTING_STRATEGY.md#test-register), [backend ops and community tests](../backend/test/ops-and-community.test.js), [Chromium accessibility and community E2E](../frontend/test/accessibility-and-community.spec.ts) and [operational and release verification](DEMO_AND_SUBMISSION.md#operational-and-release-verification).
 
 | PRD § | Requirement | Design | Backlog | Planned test | Evidence |
 |---|---|---|---|---|---|

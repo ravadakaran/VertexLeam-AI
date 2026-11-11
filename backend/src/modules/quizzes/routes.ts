@@ -8,7 +8,7 @@ import { parse, sendResource, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
 import { conflict, invalid, keySchema, missing, moduleScope, pagination, replay, revisionSchema, text } from '../learning/scope.ts'
 import type { Profile } from '../../types.ts'
-import { recordActivity } from '../gamification/routes.ts'
+import { recordActivity, invalidateLeaderboard } from '../gamification/routes.ts'
 import { recordQuizMastery } from '../personalization/routes.ts'
 
 export const quizzes = Router()
@@ -249,6 +249,7 @@ quizzes.get('/attempts/:id', ...student, async (req, res) => {
 })
 quizzes.post('/attempts/:id/submit', ...student, async (req, res) => {
   const attemptId = id(req), requestKey = key(req), body = parse(answersInput, req.body)
+  let finalizedCourseId: string | undefined
   const result = await transaction(async client => {
     const attempt = await scopedAttempt(client, req.user!, attemptId, 'learner', true)
     return replay(client, req.user!.id, 'quiz-submit:' + attemptId, requestKey, body, async () => {
@@ -286,7 +287,12 @@ quizzes.post('/attempts/:id/submit', ...student, async (req, res) => {
         UPDATE quiz_attempts SET status=$2,submitted_at=clock_timestamp(),answers=$3,points=$4,
           objective_score=$5,score=$6,graded_at=CASE WHEN $2='graded' THEN clock_timestamp() END,revision=revision+1 WHERE id=$1 RETURNING *
       `, [attemptId, manual ? 'pending_review' : 'graded', JSON.stringify(body.answers), scored, objective, manual ? null : objective])
-      if (!manual) await recordQuizMastery(client, req.user!.id, attemptId, questions, scored)
+      if (!manual) {
+        await recordQuizMastery(client, req.user!.id, attemptId, questions, scored)
+        const { rows: [mod] } = await client.query<{ course_id: string }>(
+          'SELECT m.course_id FROM quizzes q JOIN modules m ON m.id=q.module_id WHERE q.id=$1', [attempt.quiz_id])
+        finalizedCourseId = mod?.course_id
+      }
       if (!manual && objective === 100) {
         await client.query("INSERT INTO learner_badges(user_id,badge_key) VALUES($1,'perfect_quiz') ON CONFLICT DO NOTHING", [req.user!.id])
       }
@@ -294,10 +300,12 @@ quizzes.post('/attempts/:id/submit', ...student, async (req, res) => {
       return attemptView(updated)
     })
   })
+  if (finalizedCourseId) await invalidateLeaderboard(finalizedCourseId)
   sendResource(res.set('Cache-Control', 'private, no-store'), result)
 })
 quizzes.put('/attempts/:id/grade', ...author, async (req, res) => {
   const attemptId = id(req), expected = revision(req), body = parse(grading, req.body)
+  let gradedCourseId: string | undefined
   const result = await transaction(async client => {
     const attempt = await scopedAttempt(client, req.user!, attemptId, 'author', true)
     if (attempt.status !== 'pending_review' || etag(attempt.revision) !== expected) throw conflict('Attempt revision is stale or closed')
@@ -317,10 +325,14 @@ quizzes.put('/attempts/:id/grade', ...author, async (req, res) => {
     if (percent(earned, maximum) === 100) {
       await client.query("INSERT INTO learner_badges(user_id,badge_key) VALUES($1,'perfect_quiz') ON CONFLICT DO NOTHING", [attempt.user_id])
     }
+    const { rows: [mod] } = await client.query<{ course_id: string }>(
+      'SELECT m.course_id FROM quizzes q JOIN modules m ON m.id=q.module_id WHERE q.id=$1', [attempt.quiz_id])
+    gradedCourseId = mod?.course_id
     await client.query(`
       INSERT INTO audit_logs(actor_id,action,entity,entity_id,metadata) VALUES($1,'quiz.grade','attempt',$2,$3)
     `, [req.user!.id, attemptId, { revision: updated.revision, correlation_id: req.requestId }])
     return attemptView(updated)
   })
+  if (gradedCourseId) await invalidateLeaderboard(gradedCourseId)
   sendResource(res.set('Cache-Control', 'private, no-store'), result)
 })

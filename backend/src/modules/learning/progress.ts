@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg'
 import type { Profile } from '../../types.ts'
 import { transaction } from '../../db/index.ts'
 import { conflict, digest, invalid, lectureScope } from './scope.ts'
-import { refreshAwards } from '../gamification/routes.ts'
+import { refreshAwards, invalidateLeaderboard } from '../gamification/routes.ts'
 
 type Heartbeat = {
   position_seconds: number; event_id: string; playback_id: string; sequence: number
@@ -27,9 +27,11 @@ export function readProgress(user: Profile, id: string) {
   })
 }
 
-export function writeProgress(user: Profile, id: string, body: Heartbeat) {
-  return transaction(async client => {
+export async function writeProgress(user: Profile, id: string, body: Heartbeat) {
+  let courseId: string | undefined
+  const result = await transaction(async client => {
     const lecture = await lectureScope(client, user, id, 'learner')
+    courseId = lecture.course_id
     const enrollment = lecture.enrollment_id!, duration = lecture.duration_seconds
     if (!duration || body.position_seconds > duration || body.played_ranges.some(range =>
       range.end_seconds <= range.start_seconds || range.end_seconds > duration)) throw invalid('Playback range is outside this lecture')
@@ -39,11 +41,11 @@ export function writeProgress(user: Profile, id: string, body: Heartbeat) {
     `, [body.playback_id, id, enrollment])
     if (!playback) throw invalid('Playback session is invalid or expired')
     const fingerprint = digest(JSON.stringify(body))
-    const result = await client.query(`
+    const inserted = await client.query(`
       INSERT INTO playback_events(enrollment_id,lecture_id,event_id,digest) VALUES($1,$2,$3,$4)
       ON CONFLICT DO NOTHING
     `, [enrollment, id, body.event_id, fingerprint])
-    if (!result.rowCount) {
+    if (!inserted.rowCount) {
       const { rows: [prior] } = await client.query(
         'SELECT digest FROM playback_events WHERE enrollment_id=$1 AND lecture_id=$2 AND event_id=$3', [enrollment, id, body.event_id])
       if (prior.digest !== fingerprint) throw conflict('Playback event ID was reused')
@@ -80,4 +82,6 @@ export function writeProgress(user: Profile, id: string, body: Heartbeat) {
     await refreshAwards(user.id, lecture.course_id, client)
     return view(client, enrollment, id, duration)
   })
+  if (courseId) await invalidateLeaderboard(courseId)
+  return result
 }

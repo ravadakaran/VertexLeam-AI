@@ -1,0 +1,9 @@
+search-path = ["."]
+project-includes = ["app", "tests"]
+project-excludes = ["**/.venv/**", "**/__pycache__/**"]
+python-interpreter-find-command = [
+  "python",
+  "-c",
+  "import pathlib, sys; p = next((c for c in [pathlib.Path('.venv/Scripts/python.exe'), pathlib.Path('.venv/bin/python')] if c.exists()), pathlib.Path(sys.executable)); print(p.resolve())",
+]
+

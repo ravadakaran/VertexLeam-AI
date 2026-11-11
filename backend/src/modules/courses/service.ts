@@ -14,6 +14,16 @@ type CourseRow = Omit<CourseInput, 'price' | 'description' | 'thumbnail_url'> & 
 }
 import { db, transaction } from '../../db/index.ts'
 import { forbidden, HttpError } from '../../http.ts'
+import {
+  bumpCatalogGeneration,
+  cacheDel,
+  cacheGet,
+  cacheKeyDigest,
+  cacheSet,
+  getCatalogGeneration,
+  singleFlight
+} from '../../cache.ts'
+import { observeCacheEvent } from '../../utils/metrics.ts'
 import { curriculum } from '../learning/scope.ts'
 
 const notFound = () => new HttpError(404, 'NOT_FOUND', 'Course not found')
@@ -31,26 +41,58 @@ export function courseView(row: CourseRow) {
 }
 
 export async function catalog({ category, difficulty, q, rating_min, page, limit }: CatalogFilters) {
-  const { rows: [result] } = await db.query(`
-    WITH matches AS MATERIALIZED (
-      SELECT * FROM courses WHERE status = 'approved'
-      AND ($1::text IS NULL OR lower(category) = lower($1))
-      AND ($2::text IS NULL OR difficulty = $2)
-      AND ($3::text IS NULL OR strpos(lower(title || ' ' || coalesce(description, '')), lower($3)) > 0)
-      AND ($4::numeric IS NULL OR rating >= $4)
-    ), items AS (
-      SELECT * FROM matches ORDER BY created_at DESC, id LIMIT $5 OFFSET $6
-    )
-    SELECT (SELECT count(*) FROM matches) AS total,
-      coalesce(jsonb_agg(items ORDER BY created_at DESC, id), '[]') AS items FROM items
-  `, [category, difficulty, q, rating_min, limit, (page - 1) * limit])
-  return { items: result.items.map(courseView), page, limit, total: Number(result.total) }
+  const normalized = {
+    category: category ?? null,
+    difficulty: difficulty ?? null,
+    q: q ?? null,
+    rating_min: rating_min ?? null,
+    page,
+    limit
+  }
+  const gen = await getCatalogGeneration()
+  const key = `vertexlearn:catalog:g${gen}:${cacheKeyDigest(normalized)}`
+  const cached = await cacheGet<{ items: ReturnType<typeof courseView>[]; page: number; limit: number; total: number }>(key)
+  if (cached) {
+    observeCacheEvent('catalog', 'hit')
+    return cached
+  }
+  observeCacheEvent('catalog', 'miss')
+  return singleFlight(key, async () => {
+    const { rows: [result] } = await db.query(`
+      WITH matches AS MATERIALIZED (
+        SELECT * FROM courses WHERE status = 'approved'
+        AND ($1::text IS NULL OR lower(category) = lower($1))
+        AND ($2::text IS NULL OR difficulty = $2)
+        AND ($3::text IS NULL OR strpos(lower(title || ' ' || coalesce(description, '')), lower($3)) > 0)
+        AND ($4::numeric IS NULL OR rating >= $4)
+      ), items AS (
+        SELECT * FROM matches ORDER BY created_at DESC, id LIMIT $5 OFFSET $6
+      )
+      SELECT (SELECT count(*) FROM matches) AS total,
+        coalesce(jsonb_agg(items ORDER BY created_at DESC, id), '[]') AS items FROM items
+    `, [category, difficulty, q, rating_min, limit, (page - 1) * limit])
+    const payload = { items: result.items.map(courseView), page, limit, total: Number(result.total) }
+    await cacheSet(key, payload, 300)
+    return payload
+  })
 }
 
 export async function detail(id: string) {
-  const { rows: [course] } = await db.query("SELECT * FROM courses WHERE id = $1 AND status = 'approved'", [id])
-  if (!course) throw notFound()
-  return { course: courseView(course), modules: await curriculum(id) }
+  const gen = await getCatalogGeneration()
+  const key = `vertexlearn:course:g${gen}:${id}`
+  const cached = await cacheGet<{ course: ReturnType<typeof courseView>; modules: Awaited<ReturnType<typeof curriculum>> }>(key)
+  if (cached) {
+    observeCacheEvent('course', 'hit')
+    return cached
+  }
+  observeCacheEvent('course', 'miss')
+  return singleFlight(key, async () => {
+    const { rows: [course] } = await db.query("SELECT * FROM courses WHERE id = $1 AND status = 'approved'", [id])
+    if (!course) throw notFound()
+    const payload = { course: courseView(course), modules: await curriculum(id) }
+    await cacheSet(key, payload, 300)
+    return payload
+  })
 }
 
 const editable = ['title', 'description', 'category', 'difficulty', 'thumbnail_url', 'price', 'pricing_tier'] as const
@@ -69,8 +111,9 @@ async function lockCourse(client: PoolClient, id: string) {
   return course
 }
 
-export function updateCourse(user: Profile, id: string, revision: string, body: Partial<CourseInput>) {
-  return transaction(async client => {
+export async function updateCourse(user: Profile, id: string, revision: string, body: Partial<CourseInput>) {
+  let previousGen: string | undefined
+  const view = await transaction(async client => {
     const course = await lockCourse(client, id)
     if (course.instructor_id !== user.id && !user.roles.includes('admin')) throw notFound()
     if (courseView(course).revision !== revision || course.status === 'archived') throw conflict()
@@ -79,15 +122,23 @@ export function updateCourse(user: Profile, id: string, revision: string, body: 
       UPDATE courses SET ${columns.map((field, index) => `${field} = $${index + 2}`).join(', ')},
         status = 'pending', submitted_at = now(), revision = revision + 1 WHERE id = $1 RETURNING *
     `, [id, ...columns.map(field => body[field])])
+    previousGen = await getCatalogGeneration(client)
+    await bumpCatalogGeneration(client)
     return courseView(updated)
   })
+  if (previousGen) {
+    await cacheDel(`vertexlearn:course:g${previousGen}:${id}`)
+    observeCacheEvent('catalog', 'invalidated')
+  }
+  return view
 }
 
-export function approve(user: Profile, id: string, revision: string, key: string,
+export async function approve(user: Profile, id: string, revision: string, key: string,
   { decision, comment }: Review, correlationId: string) {
   const reason = comment ?? null
   if (!user.roles.includes('admin')) throw forbidden()
-  return transaction(async client => {
+  let previousGen: string | undefined
+  const response = await transaction(async client => {
     const course = await lockCourse(client, id)
     const { rows: [prior] } = await client.query(`
       SELECT * FROM course_approvals WHERE reviewed_by = $1 AND course_id = $2 AND idempotency_key = $3
@@ -100,17 +151,24 @@ export function approve(user: Profile, id: string, revision: string, key: string
     const { rows: [updated] } = await client.query(`
       UPDATE courses SET status = $2, revision = revision + 1 WHERE id = $1 RETURNING *
     `, [id, decision])
-    const response = courseView(updated)
+    const view = courseView(updated)
     await client.query(`
       INSERT INTO course_approvals(course_id, reviewed_by, decision, comment, correlation_id, idempotency_key, request_revision, response)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    `, [id, user.id, decision, reason, correlationId, key, revision, response])
+    `, [id, user.id, decision, reason, correlationId, key, revision, view])
     await client.query(`
       INSERT INTO audit_logs(actor_id, action, entity, entity_id, metadata)
       VALUES ($1, 'course.review', 'course', $2, $3)
     `, [user.id, id, { decision, revision, correlation_id: correlationId }])
-    return response
+    previousGen = await getCatalogGeneration(client)
+    await bumpCatalogGeneration(client)
+    return view
   })
+  if (previousGen) {
+    await cacheDel(`vertexlearn:course:g${previousGen}:${id}`)
+    observeCacheEvent('catalog', 'invalidated')
+  }
+  return response
 }
 
 

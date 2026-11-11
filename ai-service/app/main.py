@@ -5,10 +5,16 @@ import asyncpg
 import httpx
 import jwt
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="VertexLearn AI service", docs_url=None, redoc_url=None)
 ASSESSMENT_KEY_MARKERS = ("answer key", "correct answer:", "correct answers:", "quiz answers:", "exam solutions", "solution key")
+
+
+@app.exception_handler(httpx.HTTPError)
+async def handle_upstream_error(_request, _exc):
+    return JSONResponse(status_code=503, content={"detail": "Upstream AI provider unavailable"})
 
 
 def learning_chunks(value):
@@ -54,11 +60,12 @@ async def credentials(authorization: str | None):
     if not expected or not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Invalid service identity")
     try:
-        return jwt.decode(authorization[7:], expected, algorithms=["HS256"], audience="vertexlearn-ai-service", issuer="vertexlearn-core")
+        claims = jwt.decode(authorization[7:], expected, algorithms=["HS256"], audience="vertexlearn-ai-service", issuer="vertexlearn-core")
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid service identity")
     if os.getenv("AI_OUTBOUND_DATA_APPROVED") != "true":
         raise HTTPException(503, "Provider data processing has not been approved")
+    return claims
 
 
 async def scoped_credentials(authorization: str | None, body):

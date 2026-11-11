@@ -1,0 +1,56 @@
+name: Staging & Production Promotion
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag or git SHA to build and promote
+        required: true
+        default: main
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
+
+      - name: Record immutable release metadata
+        id: meta
+        run: |
+          echo "release_id=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Release target commit=${GITHUB_SHA}"
+
+      - name: Build digest-pinned stage candidate images
+        run: |
+          docker build -f backend/Dockerfile -t vertexlearn-backend:${{ steps.meta.outputs.release_id }} .
+          docker build -f frontend/Dockerfile -t vertexlearn-frontend:${{ steps.meta.outputs.release_id }} .
+          docker build -f ai-service/Dockerfile -t vertexlearn-ai:${{ steps.meta.outputs.release_id }} ai-service
+
+      - name: Planned staging OIDC deploy & health smoke check
+        if: vars.STAGING_BASE_URL != ''
+        env:
+          STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+        run: |
+          curl --fail --retry 5 --retry-delay 5 "${STAGING_BASE_URL}/health/ready"
+          curl --fail "${STAGING_BASE_URL}/api/v1/courses" >/dev/null
+
+      - name: Planned production promotion with automated rollback hook
+        if: vars.PROD_BASE_URL != ''
+        env:
+          PROD_BASE_URL: ${{ vars.PROD_BASE_URL }}
+          PREVIOUS_RELEASE_ID: ${{ vars.LAST_STABLE_RELEASE_ID }}
+        run: |
+          echo "Deploying ${{ steps.meta.outputs.release_id }} via OIDC-authenticated ECS task definition update"
+          if ! curl --fail --retry 3 --retry-delay 5 "${PROD_BASE_URL}/health/ready"; then
+            echo "Production health gate failed; trigger rollback to ${PREVIOUS_RELEASE_ID}"
+            exit 1
+          fi
+

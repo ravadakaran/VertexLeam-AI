@@ -37,6 +37,21 @@ export async function courseScope(sql: Sql, user: Pick<Profile, 'id' | 'roles'>,
   return { ...course, enrollment_id: course.enrollment_id }
 }
 
+export async function tutorCourseScope(sql: Sql, user: Pick<Profile, 'id' | 'roles'>, id: string) {
+  const { rows: [course] } = await sql.query<{ id: string; instructor_id: string; status: string; enrollment_id: string | null }>(`
+    SELECT c.id, c.instructor_id, c.status, e.id AS enrollment_id FROM courses c
+    LEFT JOIN enrollments e ON e.course_id = c.id AND e.user_id = $2
+    WHERE c.id = $1 FOR SHARE OF c
+  `, [id, user.id])
+  if (!course || course.status === 'archived') throw missing()
+  if (user.roles.includes('instructor') && course.instructor_id === user.id) {
+    return { ...course, is_reviewer: true }
+  }
+  if (course.status !== 'approved') throw missing()
+  if (!user.roles.includes('student') || !course.enrollment_id) throw forbidden()
+  return { ...course, enrollment_id: course.enrollment_id, is_reviewer: false }
+}
+
 export async function moduleScope(sql: Sql, user: Profile, id: string, access: 'author' | 'learner') {
   const { rows: [row] } = await sql.query<{ course_id: string }>('SELECT course_id FROM modules WHERE id = $1', [id])
   if (!row) throw missing()

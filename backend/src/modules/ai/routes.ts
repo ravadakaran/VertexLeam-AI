@@ -1,3 +1,4 @@
+import type { Request, Response, NextFunction } from 'express'
 import { createHash, randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import jwt from 'jsonwebtoken'
@@ -6,14 +7,27 @@ import { db, transaction } from '../../db/index.ts'
 import { HttpError, parse, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
 import { limit } from '../../cache.ts'
-import { courseScope, lectureScope, moduleScope, text, keySchema, replay, invalid } from '../learning/scope.ts'
+import { observeAiOutcome } from '../../utils/metrics.ts'
+import { courseScope, tutorCourseScope, lectureScope, moduleScope, text, keySchema, replay, invalid, conflict } from '../learning/scope.ts'
 import type { Profile } from '../../types.ts'
 import { recordActivity } from '../gamification/routes.ts'
 
 export const ai = Router()
-const student=[authenticate,requireRole('student')],member=[authenticate,requireRole('student')]
-const chatLimit=async(req:any,res:any,next:any)=>{await limit(res,'ai-chat',req.user!.id,20);next()}
-const unavailable=()=>new HttpError(503,'AI_UNAVAILABLE','AI provider is not configured')
+const student=[authenticate,requireRole('student')],member=[authenticate,requireRole('student','instructor')]
+const chatIpLimit=async(req:Request,res:Response,next:NextFunction)=>{
+  await limit(res,'ai-chat-ip',req.ip??req.socket.remoteAddress??'unknown',120)
+  next()
+}
+const chatLimit=async(req:Request,res:Response,next:NextFunction)=>{
+  await limit(res,'ai-chat-ip',req.ip??req.socket.remoteAddress??'unknown',120)
+  await limit(res,'ai-chat',req.user!.id,20)
+  next()
+}
+const aiJobsLimit=async(req:Request,res:Response,next:NextFunction)=>{
+  await limit(res,'ai-jobs',req.user!.id,30)
+  next()
+}
+const unavailable=()=>{observeAiOutcome('unavailable');return new HttpError(503,'AI_UNAVAILABLE','AI provider is not configured')}
 const messageBody=z.strictObject({message:text(4000),request_id:uuid})
 const modeBody=z.strictObject({mode:z.enum(['beginner','intermediate','advanced'])})
 const sessionBody=z.strictObject({course_id:uuid})
@@ -25,10 +39,11 @@ const serviceToken=(user:Profile,courseId:string)=>{
 async function callAi(path:string,token:ReturnType<typeof serviceToken>,payload:unknown){
   const origin=process.env.AI_SERVICE_URL
   if(!origin)throw unavailable()
-  let response:Response
+  let response:globalThis.Response
   try{response=await fetch(new URL(path,origin),{method:'POST',headers:{'content-type':'application/json',authorization:token.authorization},body:JSON.stringify({payload,actor_id:token.actor_id,course_id:token.course_id}),signal:AbortSignal.timeout(15000)})}
-  catch{throw new HttpError(503,'AI_UNAVAILABLE','AI provider is temporarily unavailable')}
-  if(!response.ok)throw new HttpError(503,'AI_UNAVAILABLE','AI provider is temporarily unavailable')
+  catch{observeAiOutcome('unavailable');throw new HttpError(503,'AI_UNAVAILABLE','AI provider is temporarily unavailable')}
+  if(!response.ok){observeAiOutcome('unavailable');throw new HttpError(503,'AI_UNAVAILABLE','AI provider is temporarily unavailable')}
+  observeAiOutcome('ok')
   return response.json() as Promise<any>
 }
 ai.get('/ai/health',async(_req,res)=>{
@@ -38,7 +53,7 @@ ai.get('/ai/health',async(_req,res)=>{
 ai.post('/ai/chat/sessions',...member,chatLimit,async(req,res)=>{
   const body=parse(sessionBody,req.body),requestKey=parse(keySchema,req.get('Idempotency-Key'))
   const result=await transaction(async client=>{
-    await courseScope(client,req.user!,body.course_id,'learner')
+    await tutorCourseScope(client,req.user!,body.course_id)
     serviceToken(req.user!,body.course_id)
     const {rows:[mastery]}=await client.query(`SELECT avg(m.score)::float score FROM learner_mastery m JOIN learning_topics t ON t.id=m.topic_id
       WHERE m.user_id=$1 AND t.course_id=$2`,[req.user!.id,body.course_id])
@@ -50,16 +65,22 @@ ai.post('/ai/chat/sessions',...member,chatLimit,async(req,res)=>{
   })
   res.status(201).set('Cache-Control','private, no-store').json(result)
 })
-ai.put('/ai/chat/sessions/:id/mode',...member,async(req,res)=>{
+ai.put('/ai/chat/sessions/:id/mode',...member,chatIpLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id),body=parse(modeBody,req.body)
-  const {rows:[session]}=await db.query(`UPDATE ai_chat_sessions SET mode=$3 WHERE id=$1 AND user_id=$2 RETURNING id,course_id,mode`,[id,req.user!.id,body.mode])
-  if(!session)throw new HttpError(404,'NOT_FOUND','Chat session not found')
+  const session=await transaction(async client=>{
+    const {rows:[existing]}=await client.query('SELECT id,course_id FROM ai_chat_sessions WHERE id=$1 AND user_id=$2',[id,req.user!.id])
+    if(!existing)throw new HttpError(404,'NOT_FOUND','Chat session not found')
+    await tutorCourseScope(client,req.user!,existing.course_id)
+    const {rows:[updated]}=await client.query(`UPDATE ai_chat_sessions SET mode=$3 WHERE id=$1 AND user_id=$2 RETURNING id,course_id,mode`,[id,req.user!.id,body.mode])
+    return updated
+  })
   res.set('Cache-Control','private, no-store').json(session)
 })
-ai.get('/ai/chat/sessions/:id/messages',...member,async(req,res)=>{
+ai.get('/ai/chat/sessions/:id/messages',...member,chatIpLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id)
-  const {rows:[session]}=await db.query('SELECT id FROM ai_chat_sessions WHERE id=$1 AND user_id=$2',[id,req.user!.id])
+  const {rows:[session]}=await db.query('SELECT id,course_id FROM ai_chat_sessions WHERE id=$1 AND user_id=$2',[id,req.user!.id])
   if(!session)throw new HttpError(404,'NOT_FOUND','Chat session not found')
+  await tutorCourseScope(db,req.user!,session.course_id)
   const {rows}=await db.query('SELECT role,content,sources,created_at FROM ai_chat_messages WHERE session_id=$1 ORDER BY created_at',[id])
   res.set('Cache-Control','private, no-store').json({items:rows})
 })
@@ -69,8 +90,12 @@ ai.post('/ai/chat/sessions/:id/messages',...member,chatLimit,async(req,res)=>{
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[JSON.stringify([id,request.request_id])])
     const {rows:[session]}=await client.query('SELECT id,user_id,course_id,mode FROM ai_chat_sessions WHERE id=$1 AND user_id=$2',[id,req.user!.id])
     if(!session)throw new HttpError(404,'NOT_FOUND','Chat session not found')
-    const prior=await client.query('SELECT content,sources FROM ai_chat_messages WHERE session_id=$1 AND request_id=$2 AND role=\'assistant\'',[id,request.request_id])
-    if(prior.rowCount)return {reply:prior.rows[0].content,sources:prior.rows[0].sources,mode:session.mode}
+    const scope=await tutorCourseScope(client,req.user!,session.course_id)
+    const prior=await client.query<{role:string;content:string;sources:unknown}>('SELECT role,content,sources FROM ai_chat_messages WHERE session_id=$1 AND request_id=$2',[id,request.request_id])
+    const priorUser=prior.rows.find(row=>row.role==='user')
+    const priorAssistant=prior.rows.find(row=>row.role==='assistant')
+    if(priorUser&&priorUser.content!==body.message)throw conflict('Request ID was already used for a different message')
+    if(priorAssistant)return {reply:priorAssistant.content,sources:priorAssistant.sources,mode:session.mode}
     const token=serviceToken(req.user!,session.course_id)
     const provider=await callAi('/v1/chat',token,{question:body.message,mode:session.mode,history:[]})
     if(typeof provider.reply!=='string'||provider.reply.length>8000||!Array.isArray(provider.sources))throw unavailable()
@@ -84,13 +109,13 @@ ai.post('/ai/chat/sessions/:id/messages',...member,chatLimit,async(req,res)=>{
     const output=sources.rows.map(({chunk_id,...source})=>source)
     await client.query('INSERT INTO ai_chat_messages(session_id,request_id,role,content) VALUES($1,$2,\'user\',$3) ON CONFLICT DO NOTHING',[id,request.request_id,body.message])
     await client.query('INSERT INTO ai_chat_messages(session_id,request_id,role,content,sources) VALUES($1,$2,\'assistant\',$3,$4) ON CONFLICT DO NOTHING',[id,request.request_id,provider.reply,JSON.stringify(output)])
-    await recordActivity(req.user!.id,client)
+    if(!scope.is_reviewer)await recordActivity(req.user!.id,client)
     return {reply:provider.reply,sources:output,mode:session.mode}
   })
   res.set('Cache-Control','private, no-store').json(result)
 })
 
-ai.post('/ai/lectures/:id/ingest',authenticate,requireRole('instructor','admin'),async(req,res)=>{
+ai.post('/ai/lectures/:id/ingest',authenticate,requireRole('instructor','admin'),aiJobsLimit,async(req,res)=>{
   const lectureId=parse(uuid,req.params.id),body=z.strictObject({content:text(1000000),segments:z.array(z.strictObject({start_seconds:z.int().nonnegative(),end_seconds:z.int().positive(),text:text(12000)})).max(20000)}).parse(req.body)
   const result=await transaction(async client=>{
     const lecture=await lectureScope(client,req.user!,lectureId,'author')
@@ -107,7 +132,7 @@ ai.post('/ai/lectures/:id/ingest',authenticate,requireRole('instructor','admin')
   })
   try {
     await callAi('/v1/embed', serviceToken(req.user!, result.course_id), { generation_id: result.generation.id })
-    await db.query("UPDATE ai_source_generations SET status='processing' WHERE id=$1", [result.generation.id])
+    // Status remains 'processing' until POST /ai/jobs/:id/publish confirms non-null embeddings and activates the generation.
   } catch (error) {
     await db.query("UPDATE ai_source_generations SET status='failed',error='Embedding provider unavailable' WHERE id=$1", [result.generation.id])
     throw error
@@ -115,7 +140,7 @@ ai.post('/ai/lectures/:id/ingest',authenticate,requireRole('instructor','admin')
   res.status(202).json({id:result.generation.id,status:result.generation.status,lecture_id:lectureId})
 })
 
-ai.post('/ai/jobs/:id/publish',authenticate,requireRole('instructor','admin'),async(req,res)=>{
+ai.post('/ai/jobs/:id/publish',authenticate,requireRole('instructor','admin'),aiJobsLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id)
   const result=await transaction(async client=>{
     const {rows:[row]}=await client.query(`SELECT g.*,m.course_id FROM ai_source_generations g JOIN lectures l ON l.id=g.lecture_id JOIN modules m ON m.id=l.module_id WHERE g.id=$1 FOR UPDATE`,[id])
@@ -139,7 +164,7 @@ ai.get('/ai/jobs/:id',authenticate,requireRole('student','instructor','admin'),a
   res.set('Cache-Control','private, no-store').json(row)
 })
 
-ai.post('/ai/lectures/:id/summarize',...student,async(req,res)=>{
+ai.post('/ai/lectures/:id/summarize',...student,aiJobsLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id)
   const lecture=await lectureScope(db,req.user!,id,'learner'),token=serviceToken(req.user!,lecture.course_id)
   const {rows}=await db.query("SELECT c.id,c.content,c.start_seconds,l.id lecture_id,l.title lecture_title FROM ai_chunks c JOIN ai_source_generations g ON g.id=c.generation_id JOIN lectures l ON l.id=c.lecture_id WHERE c.lecture_id=$1 AND g.status='active' ORDER BY c.ordinal",[id])
@@ -153,7 +178,7 @@ ai.post('/ai/lectures/:id/summarize',...student,async(req,res)=>{
   for(const source of sourceRows)summary=summary.replaceAll(source.id,`${source.lecture_title}${source.start_seconds!==null?` at ${source.start_seconds}s`:''}`)
   res.set('Cache-Control','private, no-store').json({summary,sources:sourceRows.map((source:any)=>({lecture_id:source.lecture_id,lecture_title:source.lecture_title,...(source.start_seconds!==null&&{timestamp_seconds:source.start_seconds})}))})
 })
-ai.post('/ai/modules/:id/flashcards',...student,async(req,res)=>{
+ai.post('/ai/modules/:id/flashcards',...student,aiJobsLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id),scope=await moduleScope(db,req.user!,id,'learner'),token=serviceToken(req.user!,scope.id)
   const {rows}=await db.query("SELECT c.id,c.content FROM ai_chunks c JOIN ai_source_generations g ON g.id=c.generation_id JOIN lectures l ON l.id=c.lecture_id WHERE c.course_id=$1 AND l.module_id=$2 AND g.status='active' ORDER BY l.order_index,c.ordinal LIMIT 80",[scope.id,id])
   if(!rows.length)throw unavailable()
@@ -162,7 +187,7 @@ ai.post('/ai/modules/:id/flashcards',...student,async(req,res)=>{
   res.set('Cache-Control','private, no-store').json(result)
 })
 
-ai.post('/ai/modules/:id/quiz-draft',authenticate,requireRole('instructor','admin'),async(req,res)=>{
+ai.post('/ai/modules/:id/quiz-draft',authenticate,requireRole('instructor','admin'),aiJobsLimit,async(req,res)=>{
   z.strictObject({}).parse(req.body)
   const moduleId=parse(uuid,req.params.id),requestKey=parse(keySchema,req.get('Idempotency-Key')),scope=await moduleScope(db,req.user!,moduleId,'author'),token=serviceToken(req.user!,scope.id)
   const replayScope='ai-quiz-draft:'+moduleId,replayDigest=createHash('sha256').update(JSON.stringify({})).digest('hex')

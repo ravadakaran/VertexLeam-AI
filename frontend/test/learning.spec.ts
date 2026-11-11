@@ -35,7 +35,7 @@ test('T-006–010 course, playback, assignment and quiz workflows', async ({ pag
   await page.setExtraHTTPHeaders({ 'X-Forwarded-For': address })
   async function signIn(role: string) {
     await page.getByLabel('Email').fill(role + '@vertexlearn.test')
-    await page.getByLabel('Password').fill(password!)
+    await page.getByLabel('Password', { exact: true }).fill(password!)
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page).toHaveURL('/' + role)
   }

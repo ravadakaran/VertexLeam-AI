@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction } from 'express'
+import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import type { Role } from '../types.ts'
 import { verify, sessionUser } from '../modules/auth/service.ts'
 import { forbidden, unauthorized } from '../http.ts'
@@ -10,6 +10,11 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
   const claims = verify('access', match[1])
   req.user = await sessionUser(claims)
   req.sessionId = claims.sid
+  next()
+}
+
+export const userRateLimit: RequestHandler = async (req, res, next) => {
+  await limit(res, 'user', req.user!.id, 100)
   next()
 }
 

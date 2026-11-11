@@ -1,6 +1,6 @@
 # Environment setup
 
-The local application covers [TASK-001 through TASK-010](TASKS.md#task-001). The full-stack setup below follows §13/§16 of the [approved Word PRD](../Document/Project%20Document.docx).
+The local application covers [TASK-001 through TASK-025](TASKS.md#task-001) on a Docker Compose stack; cloud provisioning and live stage/production promotion remain Planned under [DEC-13](DECISIONS.md#decisions-and-open-issues). The setup below follows §13/§16 of the [approved Word PRD](../Document/Project%20Document.docx).
 
 ## Run the foundation
 
@@ -20,6 +20,14 @@ npm run dev:web
 Open [the sign-in screen](http://127.0.0.1:5173/login) and use `student@vertexlearn.test`, `instructor@vertexlearn.test`, or `admin@vertexlearn.test` with your configured demo password. Seeds are insert-only and preserve an existing account's credentials. API readiness is at `GET http://127.0.0.1:3000/health/ready`.
 
 With the API and web terminals stopped, run `npm test`, `npm run typecheck`, `npm run build`, `npx playwright install chromium`, and `npm run test:e2e`. Browser tests launch both dev servers. If repeated browser runs hit the auth rate limit, retry after the `Retry-After` window.
+
+## Worker, DSA seed, full Compose stack and ops checks
+
+- **Idempotent DSA reference course (`demo:seed`)**: run `npm run db:migrate && npm run db:seed && npm run demo:seed` to provision the fixed `Data Structures and Algorithms` course (`00000000-0000-4000-8000-00000000d5a1`), module, lectures, quiz, rubric assignment, topic, discussion thread, and initial announcement.
+- **Notification worker (`dev:worker`)**: run `npm run dev:worker` in a dedicated terminal when testing `WORKER_MODE=external` outbox delivery against Redis and Mailpit.
+- **Stage Compose profile (`stack`)**: run `docker compose --env-file .env -f infra/docker-compose.yml --profile stack up --build -d` to launch PostgreSQL, Redis, MinIO, Mailpit (`http://127.0.0.1:8025`), `backend`, `worker`, `frontend`, `ai-service`, and the [NGINX edge](../infra/nginx.conf) at `http://127.0.0.1:18080`.
+- **AI service unit tests**: run `ai-service/.venv/Scripts/python.exe -m compileall ai-service/app ai-service/tests` and `ai-service/.venv/Scripts/python.exe -m unittest discover -s ai-service/tests -t ai-service -v` (or use `python3` in Unix CI).
+- **Backup/restore drill & load script**: run `pwsh -File infra/scripts/restore-drill.ps1` (or `bash infra/scripts/restore-drill.sh`) for local PostgreSQL dump/restore verification; [the k6 100-VU script](../infra/load/k6-100vu.js) targets staging benchmarks and remains Planned.
 
 ## Run the learning walkthrough
 

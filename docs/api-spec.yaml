@@ -1569,7 +1569,7 @@ paths:
       summary: Start a chat session scoped to a course
       operationId: post_ai_chat_sessions
       x-prd: '8.5'
-      description: Enrolled student owning the new course-scoped session. AI chat bucket applies.
+      description: Enrolled student or owning instructor reviewer owning the new course-scoped session. AI chat bucket applies.
       parameters:
       - name: Idempotency-Key
         in: header
@@ -1617,7 +1617,7 @@ paths:
       summary: Send a message, get RAG-grounded AI reply
       operationId: post_ai_chat_sessions_id_messages
       x-prd: '8.5'
-      description: Enrolled student who owns the session. AI calls require approved provider configuration.
+      description: Enrolled student or owning instructor reviewer who owns the session. AI calls require approved provider configuration.
       parameters:
       - name: id
         in: path
@@ -4407,6 +4407,10 @@ components:
         course_id:
           type: string
           format: uuid
+        course_title:
+          type: string
+          minLength: 1
+          maxLength: 200
         progress_percent:
           type: number
           minimum: 0

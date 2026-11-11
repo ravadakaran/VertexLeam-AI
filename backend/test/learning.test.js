@@ -203,6 +203,7 @@ test('T-008 reordered playback updates union coverage, preserve resume and keep 
   await post(prefix + '/progress', student, { ...newest, position_seconds: 1 }).expect(409)
   await post(prefix + '/progress', student2, event(5, 0, duration)).expect(422)
   assert.equal((await get('/enrollments/me', student).expect(200)).body.items[0].progress_percent, 100)
+  assert.equal((await get('/enrollments/me', student).expect(200)).body.items[0].course_title, course.title)
   const note = await post(prefix + '/notes', student, { timestamp_seconds: 2, content: 'Synthetic note' }).expect(201)
   assert.equal(note.body.timestamp_seconds, 2)
   await post(prefix + '/bookmarks', student, { timestamp_seconds: 3 }).expect(201)
@@ -333,6 +334,9 @@ test('T-013–015 AI service requires enrollment and remains unavailable without
   delete process.env.AI_SERVICE_TOKEN; delete process.env.AI_SERVICE_URL; delete process.env.AI_OUTBOUND_DATA_APPROVED
   try {
     await post('/ai/chat/sessions', sessions.outsider, { course_id: course.id }).expect(403)
+    await post('/ai/chat/sessions', sessions.admin, { course_id: course.id }).expect(403)
+    await post('/ai/chat/sessions', sessions.stranger, { course_id: course.id }).expect(403)
+    await post('/ai/chat/sessions', sessions.author, { course_id: course.id }).expect(503)
     await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(503)
     await post('/ai/lectures/' + lecture.id + '/ingest', sessions.stranger, { content: 'Synthetic transcript', segments: [] }).expect(404)
   } finally {
@@ -446,6 +450,94 @@ test('T-016–017 approved internal adapter returns lecture tools and keeps gene
     server.close()
     for(const [key,value] of Object.entries({AI_SERVICE_TOKEN:previous.token,AI_SERVICE_URL:previous.url,AI_OUTBOUND_DATA_APPROVED:previous.approved})){
       if(value===undefined)delete process.env[key];else process.env[key]=value
+    }
+  }
+})
+
+test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and chat replay conflict', async () => {
+  let chatCalls = 0
+  let publishedChunkId
+  const vectorLiteral = '[' + Array.from({ length: 1536 }, (_, idx) => (idx === 0 ? '1' : '0')).join(',') + ']'
+  const server = createServer(async (req, res) => {
+    const pieces = []
+    for await (const piece of req) pieces.push(piece)
+    const body = JSON.parse(Buffer.concat(pieces).toString())
+    if (req.url === '/v1/embed') {
+      const generationId = body.payload.generation_id
+      const { rows } = await db.query('SELECT id FROM ai_chunks WHERE generation_id=$1 ORDER BY ordinal', [generationId])
+      publishedChunkId = rows[0].id
+      await db.query('UPDATE ai_chunks SET embedding=$2::vector WHERE generation_id=$1', [generationId, vectorLiteral])
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ generation_id: generationId, chunks: rows.length }))
+      return
+    }
+    if (req.url === '/v1/chat') {
+      chatCalls++
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({
+        reply: `Quicksort explanation grounded in [${publishedChunkId}].`,
+        sources: [{ chunk_id: publishedChunkId }]
+      }))
+      return
+    }
+    res.writeHead(404).end()
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const previous = {
+    token: process.env.AI_SERVICE_TOKEN,
+    url: process.env.AI_SERVICE_URL,
+    approved: process.env.AI_OUTBOUND_DATA_APPROVED
+  }
+  process.env.AI_SERVICE_TOKEN = 'synthetic-adapter-token'
+  process.env.AI_SERVICE_URL = `http://127.0.0.1:${server.address().port}`
+  process.env.AI_OUTBOUND_DATA_APPROVED = 'true'
+  try {
+    const ingest = (await post('/ai/lectures/' + lecture.id + '/ingest', sessions.author, {
+      content: 'Quicksort selects a pivot and partitions elements in place.',
+      segments: [{ start_seconds: 1, end_seconds: 5, text: 'Quicksort selects a pivot and partitions elements in place.' }]
+    }).expect(202)).body
+    assert.equal(ingest.status, 'processing')
+    const activated = (await post('/ai/jobs/' + ingest.id + '/publish', sessions.author, {}).expect(200)).body
+    assert.equal(activated.status, 'active')
+
+    await post('/ai/chat/sessions', sessions.admin, { course_id: course.id }).expect(403)
+    const reviewerSession = (await post('/ai/chat/sessions', sessions.author, { course_id: course.id }).expect(201)).body
+    await bearer(api.put(base + '/ai/chat/sessions/' + reviewerSession.id + '/mode'), sessions.author).send({ mode: 'advanced' }).expect(200)
+    const reviewerReply = (await post('/ai/chat/sessions/' + reviewerSession.id + '/messages', sessions.author, {
+      message: 'Summarize reviewer scope',
+      request_id: randomUUID()
+    }).expect(200)).body
+    assert.equal(reviewerReply.mode, 'advanced')
+    assert.equal(reviewerReply.sources[0].lecture_id, lecture.id)
+    assert.equal((await db.query('SELECT count(*)::int n FROM learner_activity WHERE user_id=$1', [sessions.author.user.id])).rows[0].n, 0)
+
+    const studentSession = (await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(201)).body
+    await get('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.author).expect(404)
+
+    const msgRequestId = randomUUID()
+    const callsBefore = chatCalls
+    const first = (await post('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.student, {
+      message: 'How does partitioning work?',
+      request_id: msgRequestId
+    }).expect(200)).body
+    const replaySame = (await post('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.student, {
+      message: 'How does partitioning work?',
+      request_id: msgRequestId
+    }).expect(200)).body
+    assert.deepEqual(replaySame, first)
+    assert.equal(chatCalls, callsBefore + 1)
+    await post('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.student, {
+      message: 'Different question reusing request_id',
+      request_id: msgRequestId
+    }).expect(409)
+  } finally {
+    server.close()
+    for (const [key, value] of Object.entries({
+      AI_SERVICE_TOKEN: previous.token,
+      AI_SERVICE_URL: previous.url,
+      AI_OUTBOUND_DATA_APPROVED: previous.approved
+    })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value
     }
   }
 })

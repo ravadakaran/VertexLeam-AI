@@ -27,7 +27,7 @@ function Guard({ role }: { role: Role }) {
     return (
       <div className="auth-wrapper">
         <main className="auth-card text-center" role="status">
-          <p className="text-sm font-semibold text-slate-600">Checking your session…</p>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Checking your session…</p>
         </main>
       </div>
     )
@@ -64,12 +64,12 @@ export function App() {
           element={
             <div className="auth-wrapper">
               <main className="auth-card text-center">
-                <div className="w-12 h-12 mx-auto rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-xl mb-3">
+                <div className="w-12 h-12 mx-auto rounded-xl bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-200 flex items-center justify-center font-bold text-xl mb-3">
                   ✕
                 </div>
                 <h1>Access denied</h1>
-                <p className="text-sm text-slate-500 mb-6">Your account cannot open this workspace.</p>
-                <Link to="/" className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg no-underline hover:text-white">
+                <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">Your account cannot open this workspace.</p>
+                <Link to="/" className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg no-underline hover:text-white">
                   Return home
                 </Link>
               </main>
@@ -122,8 +122,8 @@ export function App() {
                   ) : (
                     <div className="space-y-4">
                       <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">{label}</h1>
-                      <div className="p-6 rounded-xl bg-white border border-slate-200 shadow-xs">
-                        <p className="text-sm text-slate-600 m-0">This section is planned for a later task.</p>
+                      <div className="p-6 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xs">
+                        <p className="text-sm text-slate-700 dark:text-slate-200 m-0">This section is planned for a later task.</p>
                       </div>
                     </div>
                   )
@@ -140,8 +140,8 @@ export function App() {
             <div className="auth-wrapper">
               <main className="auth-card text-center">
                 <h1>Page not found</h1>
-                <p className="text-sm text-slate-500 mb-6">The page you are looking for does not exist.</p>
-                <Link to="/" className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg no-underline hover:text-white">
+                <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">The page you are looking for does not exist.</p>
+                <Link to="/" className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg no-underline hover:text-white">
                   Return home
                 </Link>
               </main>

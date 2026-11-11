@@ -36,7 +36,7 @@ const author = requireRole('instructor', 'admin')
 const student = requireRole('student')
 const admin = requireRole('admin')
 const publicCatalog = async (req: Request, res: Response, next: NextFunction) => {
-  await limit(res, 'catalog-ip', req.ip ?? req.socket.remoteAddress ?? 'unknown', 120)
+  await limit(res, 'catalog-ip', req.ip ?? req.socket.remoteAddress ?? 'unknown', 120, { failOpen: true })
   next()
 }
 

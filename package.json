@@ -7,12 +7,14 @@
   },
   "scripts": {
     "dev:api": "node --env-file-if-exists=.env backend/src/server.ts",
+    "dev:worker": "node --env-file-if-exists=.env backend/src/jobs/worker.ts",
     "dev:web": "vite frontend",
     "build": "vite build frontend",
     "typecheck": "tsc -p backend/tsconfig.json && tsc -p frontend/tsconfig.json",
     "db:migrate": "node --env-file-if-exists=.env backend/src/db/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env backend/src/db/seed.ts",
     "demo:approve": "node --env-file-if-exists=.env backend/src/db/approve-demo-course.ts",
+    "demo:seed": "node --env-file-if-exists=.env backend/src/db/seeders/dsa-demo.ts",
     "test": "node --env-file-if-exists=.env --test backend/test/*.test.js",
     "test:e2e": "node --env-file-if-exists=.env node_modules/@playwright/test/cli.js test"
   },
