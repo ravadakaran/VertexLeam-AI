@@ -12,7 +12,7 @@ As instructor upload playable lecture media and resources, publish a quiz and se
 
 ## D3 · AI tutor
 
-Ingest a lecture and wait for the active version. Ask a supported question, follow its citation/timestamp, and repeat with a new explanation mode. Ask an unsupported or cross-course question and show bounded fallback or access denial. Simulate provider outage, observe tutor failure and demonstrate core playback/CRUD still work. Generate a summary and flashcards, then use finalized quiz history for study plan, mastery and recommendations. As instructor generate a draft, inspect/edit and approve it. Confirm student sees the published assessment without keys.
+Ingest transcript, captions, PDF pages and slide text; inspect the active generation's source metadata. Ask supported questions in multiple persisted sessions, follow lecture/time/page citations, and repeat with another explanation mode. Ask an unsupported or cross-course question and show bounded fallback or access denial. Simulate provider outage, observe retryable tutor failure and demonstrate core playback/CRUD still work. Download a cited summary, save generated flashcards and review a due card. Generate a seven-day AI study plan from finalized quiz history and verify mastery priorities. As instructor generate a draft, inspect/edit and approve it. Confirm student sees the published assessment without keys. Record token totals without exposing prompt content.
 
 ## D4 · Deployed governance and release
 

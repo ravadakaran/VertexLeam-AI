@@ -15,16 +15,21 @@ type CourseDetail = { course: Course; modules: Module[] }
 type Grant = { url: string; playback_id: string; captions_url?: string }
 type Progress = { position_seconds: number; watched_seconds: number; completed: boolean; progress_percent: number }
 type Annotation = { id: string; timestamp_seconds: number; content?: string }
-type TutorSession = { id: string; course_id: string; mode: string }
-type TutorReply = { reply: string; mode: string; sources: Array<{ lecture_id: string; lecture_title: string; timestamp_seconds?: number }> }
+type TutorSource = { lecture_id: string; lecture_title: string; timestamp_seconds?: number; page_number?: number; source_name?: string }
+type TutorSession = { id: string; course_id: string; mode: string; created_at?: string; last_question?: string }
+type TutorMessage = { role: 'user'|'assistant'; content: string; sources?: TutorSource[] }
+type TutorReply = { reply: string; mode: string; sources: TutorSource[] }
 type CourseAnalytics = { starts: number; completes: number; average_quiz_score: number | null; time_on_task_seconds: number; dropoff_percent: number | null }
-type StudyCards = { summary?: string; sources?: Array<{lecture_id:string;lecture_title:string;timestamp_seconds?:number}>; items?: Array<{question:string;answer:string}> }
+type StudyCards = { summary?: string; sources?: Array<TutorSource>; items?: Array<{id:string;question:string;answer:string;next_review_at?:string}> }
+type SavedFlashcard = {id:string;module_title:string;course_title:string;question:string;answer:string;next_review_at:string}
 
-function PersonalizationPanel(){
+function PersonalizationPanel({courseId}:{courseId:string}){
   const mastery=useData<{items:Array<{topic_id:string;name:string;score:number;band:string}>}>('/users/me/mastery')
-  const plan=useData<{steps:Array<{order:number;course_title:string;topic:string;action:string;reason:string;mastery:number}>}>('/users/me/study-plan')
+  const plan=useData<{days:Array<{day:number;scheduled_for:string;steps:Array<{order?:number;course_title?:string;topic:string;action:string;reason?:string;mastery?:number;estimated_minutes:number}>}>}>('/users/me/study-plan?course_id='+encodeURIComponent(courseId))
   const recommendations=useData<{items:Array<{course_id:string;title:string;score:number;reason:string}>}>('/users/me/recommendations')
-  return <section className="feature-section space-y-3"><h2 className="text-lg font-bold">Your study plan</h2>{plan.data?.steps.map(step=><p key={step.order} className="text-sm text-slate-800 dark:text-slate-100"><strong>{step.order}. {step.topic}</strong> · {step.course_title}<br/>{step.action} <span className="text-slate-600 dark:text-slate-300">({step.reason})</span></p>)}
+  const [generating,setGenerating]=useState(false),[generationError,setGenerationError]=useState('')
+  async function generate(){setGenerating(true);setGenerationError('');try{await api('/ai/study-plan',json({course_id:courseId}));plan.refresh()}catch(failure){setGenerationError(String(failure))}finally{setGenerating(false)}}
+  return <section className="feature-section space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">Your study plan</h2><button type="button" disabled={generating} className="secondary text-xs py-1.5 px-3" onClick={()=>void generate()}>{generating?'Building plan…':'Generate personalized plan'}</button></div><p className="text-xs text-slate-600 dark:text-slate-300">A seven-day schedule ordered around your finalized quiz results. Cold-start topics use the course syllabus.</p>{generationError&&<p role="alert" className="text-xs">{generationError}</p>}{plan.data?.days.map(day=><section key={day.day} className="border-t border-slate-200 dark:border-slate-700 pt-2"><h3 className="text-sm font-bold">Day {day.day} · {day.scheduled_for}</h3>{day.steps.length?day.steps.map((step,index)=><p key={step.order??index} className="text-sm text-slate-800 dark:text-slate-100"><strong>{step.topic}</strong>{step.course_title&&` · ${step.course_title}`} · {step.estimated_minutes} min<br/>{step.action} {step.reason&&<span className="text-slate-600 dark:text-slate-300">({step.reason})</span>}</p>):<p className="text-xs text-slate-600 dark:text-slate-300">Rest day or catch up on a previous topic.</p>}</section>)}
     {!!mastery.data?.items.length&&<div><h3 className="text-sm font-bold">Topic mastery</h3>{mastery.data.items.map(topic=><p key={topic.topic_id} className="text-xs text-slate-700 dark:text-slate-200">{topic.name}: {Math.round(topic.score*100)}% · {topic.band}</p>)}</div>}
     {!!recommendations.data?.items.length&&<div><h3 className="text-sm font-bold">Recommended courses</h3>{recommendations.data.items.map(item=><p key={item.course_id} className="text-xs text-slate-700 dark:text-slate-200">{item.title} · {item.reason}</p>)}</div>}
     {(plan.error||mastery.error||recommendations.error)&&<p role="alert" className="text-xs">{plan.error||mastery.error||recommendations.error}</p>}
@@ -43,10 +48,34 @@ function ModuleLearningTools({moduleId,lectures}:{moduleId:string;lectures:Lectu
       <button type="button" disabled={!!busy} className="secondary text-xs py-1 px-2" onClick={()=>void load('cards','/ai/modules/'+moduleId+'/flashcards')}>{busy==='cards'?'Working…':'Generate module flashcards'}</button>
     </div>
     {error&&<p role="alert" className="text-xs">{error}</p>}
-    {result?.summary&&<p className="text-sm whitespace-pre-wrap text-slate-800 dark:text-slate-100">{result.summary}</p>}
-    {!!result?.sources?.length&&<p className="text-xs text-slate-600 dark:text-slate-300">Sources: {result.sources.map(source=>source.lecture_title+(source.timestamp_seconds!==undefined?` at ${source.timestamp_seconds}s`:'' )).join(' · ')}</p>}
+    {result?.summary&&<><p className="text-sm whitespace-pre-wrap text-slate-800 dark:text-slate-100">{result.summary}</p><button type="button" className="secondary text-xs py-1 px-2" onClick={()=>{
+      const url=URL.createObjectURL(new Blob([result.summary??''],{type:'text/plain;charset=utf-8'})),anchor=document.createElement('a')
+      anchor.href=url;anchor.download='lecture-summary.txt';anchor.click();URL.revokeObjectURL(url)
+    }}>Download summary</button></>}
+    {!!result?.sources?.length&&<p className="text-xs text-slate-600 dark:text-slate-300">Sources: {result.sources.map(source=>(source.source_name??source.lecture_title)+(source.page_number!==undefined?` p. ${source.page_number}`:source.timestamp_seconds!==undefined?` at ${source.timestamp_seconds}s`:'' )).join(' · ')}</p>}
     {result?.items?.map((item,index)=><details key={index} className="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700"><summary className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.question}</summary><p className="text-sm text-slate-700 dark:text-slate-200 mb-0">{item.answer}</p></details>)}
   </div>
+}
+
+function FlashcardReview({courseId}:{courseId:string}){
+  const cards=useData<{items:SavedFlashcard[]}>('/users/me/flashcards?course_id='+encodeURIComponent(courseId))
+  const [revealed,setRevealed]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+  const now=Date.now(),due=cards.data?.items.filter(card=>new Date(card.next_review_at).getTime()<=now)??[]
+  const current=due[0]
+  async function markReviewed(){
+    if(!current)return
+    setBusy(true);setError('')
+    try{await api('/users/me/flashcards/'+current.id+'/review',json({}));setRevealed('');cards.refresh()}
+    catch(failure){setError(String(failure))}finally{setBusy(false)}
+  }
+  return <section className="feature-section space-y-3"><h2 className="text-lg font-bold">Flashcard review</h2>
+    {cards.error&&<p role="alert">{cards.error}</p>}{error&&<p role="alert">{error}</p>}
+    {current?<div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3" aria-live="polite">
+      <p className="text-xs text-slate-600 dark:text-slate-300">{due.length} due · {current.course_title} / {current.module_title}</p>
+      <p className="text-base font-semibold">{current.question}</p>
+      {revealed===current.id?<><p className="text-sm whitespace-pre-wrap">{current.answer}</p><button type="button" disabled={busy} onClick={()=>void markReviewed()}>Mark reviewed · due tomorrow</button></>:<button type="button" className="secondary" onClick={()=>setRevealed(current.id)}>Show answer</button>}
+    </div>:cards.data?.items.length?<p role="status" className="text-sm">No cards are due. Next review: {new Date(Math.min(...cards.data.items.map(card=>new Date(card.next_review_at).getTime()))).toLocaleDateString()}.</p>:<p role="status" className="text-sm">No saved flashcards yet. Generate a module deck to start reviewing.</p>}
+  </section>
 }
 
 function formatSeconds(seconds: number): string {
@@ -57,9 +86,40 @@ function formatSeconds(seconds: number): string {
 
 function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewer?: boolean }) {
   const [session, setSession] = useState<TutorSession>()
-  const [reply, setReply] = useState<TutorReply>()
+  const [sessions, setSessions] = useState<TutorSession[]>([])
+  const [messages, setMessages] = useState<TutorMessage[]>([])
+  const [usage, setUsage] = useState<{requests:number;input_tokens:number;output_tokens:number}>()
+  const [mode, setMode] = useState('intermediate')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled=false
+    setSession(undefined);setSessions([]);setMessages([]);setMode('intermediate')
+    void Promise.all([
+      api<{items:TutorSession[]}>('/ai/chat/sessions?course_id='+encodeURIComponent(courseId)).then(async result=>{
+        if(cancelled)return
+        setSessions(result.items)
+        if(result.items[0]){
+          setSession(result.items[0]);setMode(result.items[0].mode)
+          const history=await api<{items:TutorMessage[]}>('/ai/chat/sessions/'+result.items[0].id+'/messages')
+          if(!cancelled)setMessages(history.items)
+        }
+      }).catch(failure=>{if(!cancelled)setError(String(failure))}),
+      api<typeof usage>('/users/me/ai-usage').then(value=>{if(!cancelled&&value)setUsage(value)}).catch(()=>{})
+    ])
+    return ()=>{cancelled=true}
+  },[courseId])
+
+  async function selectSession(next:TutorSession){
+    setError('');setSession(next);setMode(next.mode);setMessages([])
+    try{setMessages((await api<{items:TutorMessage[]}>('/ai/chat/sessions/'+next.id+'/messages')).items)}
+    catch(failure){setError(String(failure))}
+  }
+
+  async function newSession(){
+    setError('');setSession(undefined);setMessages([]);setMode('intermediate')
+  }
 
   async function ask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('')
@@ -67,14 +127,21 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
       const form = new FormData(event.currentTarget)
       const current = session ?? await api<TutorSession>('/ai/chat/sessions', json({ course_id: courseId }, requestKey()))
       setSession(current)
-      const mode = String(form.get('mode'))
-      if (mode !== current.mode) {
-        const updated = await api<TutorSession>('/ai/chat/sessions/' + current.id + '/mode', json({ mode }, {}, 'PUT'))
+      const selectedMode = String(form.get('mode'))
+      let active=current
+      if (selectedMode !== current.mode) {
+        const updated = await api<TutorSession>('/ai/chat/sessions/' + current.id + '/mode', json({ mode:selectedMode }, {}, 'PUT'))
         setSession(updated)
+        active=updated
       }
-      setReply(await api<TutorReply>('/ai/chat/sessions/' + current.id + '/messages', json({
+      const answer=await api<TutorReply>('/ai/chat/sessions/' + current.id + '/messages', json({
         message: form.get('message'), request_id: crypto.randomUUID()
-      })))
+      }))
+      setMessages(previous=>[...previous,{role:'user',content:String(form.get('message'))},{role:'assistant',content:answer.reply,sources:answer.sources}])
+      if(!sessions.some(item=>item.id===current.id))setSessions(previous=>[current,...previous])
+      setMode(active.mode)
+      const currentUsage=await api<typeof usage>('/users/me/ai-usage').catch(()=>undefined)
+      if(currentUsage)setUsage(currentUsage)
       event.currentTarget.reset()
     } catch (failure) { setError(String(failure)) }
     finally { setBusy(false) }
@@ -96,6 +163,12 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
           : 'Grounded in lecture transcripts and course syllabus. Ask for explanations, step-by-step guidance, or code walkthroughs.'}
       </p>
 
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <button type="button" className="secondary text-xs py-1.5 px-3" onClick={()=>void newSession()}>New conversation</button>
+        {sessions.map((item,index)=><button type="button" key={item.id} aria-pressed={session?.id===item.id} className={session?.id===item.id?'text-xs py-1.5 px-3':'secondary text-xs py-1.5 px-3'} onClick={()=>void selectSession(item)}>{item.last_question?.slice(0,42)||`Conversation ${sessions.length-index}`}</button>)}
+        {usage&&<span className="ml-auto text-xs text-slate-600 dark:text-slate-300">This month: {usage.input_tokens.toLocaleString()} input · {usage.output_tokens.toLocaleString()} output tokens</span>}
+      </div>
+
       <form className="feature-form max-w-none space-y-3" onSubmit={ask}>
         <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">
           {reviewer ? 'Reviewer prompt' : 'Question'}
@@ -111,7 +184,7 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
         <div className="flex items-center justify-between flex-wrap gap-4">
           <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex-1 max-w-xs">
             Explanation depth
-            <select name="mode" defaultValue="intermediate" className="mt-1">
+            <select name="mode" value={mode} onChange={event=>setMode(event.target.value)} className="mt-1">
               {['beginner', 'intermediate', 'advanced'].map(mode => (
                 <option key={mode} value={mode}>{mode}</option>
               ))}
@@ -125,26 +198,24 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
 
       {error && <p role="alert">{error}</p>}
 
-      {reply && (
-        <div className="mt-5 p-4 rounded-xl bg-white dark:bg-slate-800 border border-indigo-200 dark:border-slate-700 shadow-xs space-y-3">
-          <div className="text-xs font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wider flex items-center gap-1.5">
-            <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6m-5 4h4m-5.5-7.2A7 7 0 1 1 15.5 15c-.8.6-1.2 1.3-1.3 2h-4.4c-.1-.7-.5-1.4-1.3-2Z"/></svg> Tutor Explanation ({reply.mode})
-          </div>
-          <p className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed m-0">{reply.reply}</p>
-          {reply.sources.length > 0 && (
+      {!!messages.length && <ol aria-label="Conversation" className="mt-5 space-y-3 list-none p-0">
+        {messages.map((message,index)=><li key={`${index}-${message.role}`} className={`p-3 rounded-lg border ${message.role==='assistant'?'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700':'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'}`}>
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">{message.role==='assistant'?`Tutor · ${session?.mode??mode}`:'You'}</span>
+          <p className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed mb-0 mt-1">{message.content}</p>
+          {!!message.sources?.length && (
             <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
               <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 block mb-1.5">Grounded Sources & Citations:</span>
               <ul className="flex flex-wrap gap-2 list-none p-0 m-0">
-                {reply.sources.map((source, index) => (
-                  <li key={source.lecture_id + index} className="text-xs px-2.5 py-1 rounded-md bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium">
-                    <svg aria-hidden="true" className="inline h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Zm0 0V21"/></svg>{source.lecture_title}{source.timestamp_seconds !== undefined ? ` at ${source.timestamp_seconds}s` : ''}
+                {message.sources.map((source, sourceIndex) => (
+                  <li key={source.lecture_id + sourceIndex} className="text-xs px-2.5 py-1 rounded-md bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-medium">
+                    <svg aria-hidden="true" className="inline h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21V5.5Zm0 0V21"/></svg>{source.source_name??source.lecture_title}{source.page_number!==undefined?` · page ${source.page_number}`:source.timestamp_seconds !== undefined ? ` at ${source.timestamp_seconds}s` : ''}
                   </li>
                 ))}
               </ul>
             </div>
           )}
-        </div>
-      )}
+        </li>)}
+      </ol>}
     </section>
   )
 }
@@ -505,6 +576,19 @@ export function CourseWorkspace({ author = false }: { author?: boolean }) {
               ))}
             </ul>
 
+            {author&&module.lectures.map(item=><details key={`index-${item.id}`} className="mb-3 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+              <summary className="text-xs font-semibold cursor-pointer">Index transcript and attached course materials · {item.title}</summary>
+              <p className="text-xs text-slate-600 dark:text-slate-300">Includes this lecture’s uploaded PDFs, slides and captions. Learner notes remain private and are not indexed.</p>
+              <ActionForm label="Build and publish search index" onSubmit={async data=>{
+                const generation=await api<{id:string}>('/ai/lectures/'+item.id+'/ingest',json({content:data.get('content')??'',segments:[]}))
+                await api('/ai/jobs/'+generation.id+'/publish',json({}))
+              }}>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-200">Instructor transcript or notes
+                  <textarea name="content" maxLength={1000000} rows={4} placeholder="Paste lecture transcript or instructor course notes…" className="mt-1" />
+                </label>
+              </ActionForm>
+            </details>)}
+
             {!author&&<ModuleLearningTools moduleId={module.id} lectures={module.lectures} />}
 
             {author && (
@@ -547,7 +631,7 @@ export function CourseWorkspace({ author = false }: { author?: boolean }) {
 
       {lecture && <Player key={lecture.id} lecture={lecture} />}
 
-      {author ? <><AnalyticsPanel courseId={current.id} /><CourseTutor courseId={current.id} reviewer /></> : <><CourseTutor courseId={current.id} /><PersonalizationPanel /></>}
+      {author ? <><AnalyticsPanel courseId={current.id} /><CourseTutor courseId={current.id} reviewer /></> : <><CourseTutor courseId={current.id} /><FlashcardReview courseId={current.id} /><PersonalizationPanel courseId={current.id} /></>}
 
       <Assignments courseId={current.id} author={author} />
 

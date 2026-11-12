@@ -124,7 +124,7 @@ AI runtime and provider adapter · Day 15 · P0
 Transcribe, parse, embed and publish · Day 16 · P0
 
 - Depends on [TASK-007](TASKS.md#task-007), [TASK-013](TASKS.md#task-013).
-- Implementation ingestion generations and chunk schema in [migration 008](../backend/src/db/migrations/008_engagement_ai.sql) and owner-scoped ingestion/publish routes in [AI routes](../backend/src/modules/ai/routes.ts).
+- Implementation ingestion generations and chunks across [migration 008](../backend/src/db/migrations/008_engagement_ai.sql) and [migration 013](../backend/src/db/migrations/013_ai_learning_tools.sql), with owner-scoped transcript, PDF, PPTX, WebVTT ingestion and publish routes in [AI routes](../backend/src/modules/ai/routes.ts) and extraction in [AI service](../ai-service/app/main.py).
 - Requirements JOB-TRANSCRIBE, JOB-EMBED.
 - Acceptance. Retry leaves one active source generation; vectors have 1536 dimensions and segments retain offsets.
 
@@ -133,7 +133,7 @@ Transcribe, parse, embed and publish · Day 16 · P0
 Course-scoped tutor · Day 17 · P0
 
 - Depends on [TASK-014](TASKS.md#task-014).
-- Implementation course-scoped chat, mode, history, tutor routes and FastAPI retrieval in [AI routes](../backend/src/modules/ai/routes.ts) and [AI service](../ai-service/app/main.py).
+- Implementation course-scoped chat, mode, session-local bounded history, tutor routes and FastAPI retrieval in [AI routes](../backend/src/modules/ai/routes.ts) and [AI service](../ai-service/app/main.py).
 - Requirements FR-A1, FR-A2, SCOPE-TUTOR, API-AI, SYS-RAG, KPI-LATENCY.
 - Acceptance. Good source cites correct lecture; identical cross-course text, injected instructions and provider outage are handled.
 
@@ -142,7 +142,7 @@ Course-scoped tutor · Day 17 · P0
 Summaries and flashcards · Day 18 · P0/P2
 
 - Depends on [TASK-014](TASKS.md#task-014).
-- Implementation [AI tool endpoints](../ai-service/app/main.py), [course-scoped routes](../backend/src/modules/ai/routes.ts) and [learning tools UI](../frontend/src/pages/CourseWorkspace.tsx).
+- Implementation [AI tool endpoints](../ai-service/app/main.py), [course-scoped routes and saved private flashcards](../backend/src/modules/ai/routes.ts) and [learning tools UI](../frontend/src/pages/CourseWorkspace.tsx), including summary downloads and due-card review.
 - Requirements FR-A3, FR-A7, SCOPE-AI-TOOLS.
 - Acceptance. Summary and module flashcards are grounded and omit assessment keys.
 
@@ -162,7 +162,7 @@ Modes, mastery, study plan, recommendations and buffer · Day 20–21 · P1
 - Depends on [TASK-010](TASKS.md#task-010), [TASK-015](TASKS.md#task-015).
 - Implementation [mastery and personalization APIs](../backend/src/modules/personalization/routes.ts), [quiz evidence updates](../backend/src/modules/quizzes/routes.ts), [schema](../backend/src/db/migrations/010_personalization_admin.sql) and [student UI](../frontend/src/pages/CourseWorkspace.tsx).
 - Requirements FR-S10, FR-A4, FR-A6, FR-A8, SCOPE-MODES, SCOPE-RECS, JOB-RECOMMEND, PLAN-W3.
-- Acceptance. Deterministic event replay yields expected mastery band, approved recommendations and history-based study steps.
+- Acceptance. Deterministic event replay yields expected mastery band, approved recommendations and history-based daily study steps.
 
 ## TASK-019
 

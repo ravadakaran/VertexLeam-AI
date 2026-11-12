@@ -30,11 +30,15 @@ The [OpenAPI 3.0 contract](api-spec.yaml) contains all 40 documented §8 operati
 | POST | `/quizzes/{id}/attempt` | 8.4 | enrolled | 201 |
 | POST | `/attempts/{id}/submit` | 8.4 | self | 200 |
 | POST | `/ai/chat/sessions` | 8.5 | tutor | 201 |
+| GET | `/ai/chat/sessions?course_id={id}` | TASK-015 | tutor | 200 |
 | POST | `/ai/chat/sessions/{id}/messages` | 8.5 | tutor | 200 |
 | POST | `/ai/lectures/{id}/summarize` | 8.5 | enrolled | 200 |
 | POST | `/ai/lectures/{id}/generate-quiz` | 8.5 | owner | 202 |
 | POST | `/ai/modules/{id}/flashcards` | 8.5 | enrolled | 200 |
 | POST | `/ai/study-plan` | 8.5 | enrolled | 200 |
+| GET | `/users/me/flashcards` | TASK-016 | enrolled | 200 |
+| POST | `/users/me/flashcards/{id}/review` | TASK-016 | self | 200 |
+| GET | `/users/me/ai-usage` | TASK-015 | self | 200 |
 | PUT | `/ai/chat/sessions/{id}/mode` | 8.5 | tutor | 200 |
 | GET | `/recommendations/me` | 8.6 | student | 200 |
 | GET | `/users/me/badges` | 8.6 | student | 200 |
@@ -140,6 +144,10 @@ Apply §8.9 route groups before auxiliary controls. Auth endpoints use 10/min/IP
 ```
 
 Source timestamps are optional when unavailable. Insufficient course evidence returns a bounded fallback with an empty source list and current mode. Provider failure returns 503. The PRD login shape is email/password → access_token, refresh_token and user containing id, full_name and role. See [security](SECURITY.md) for token rotation and [AI tutor](AI_TUTOR.md) for source validation.
+
+For each chat request, the service loads up to ten prior messages from that actor-owned session; clients do not submit history. The AI adapter caps history at 4,000 characters per message and 12,000 characters total, and treats it as conversational context rather than factual evidence. See [AI routes](../backend/src/modules/ai/routes.ts), [AI service](../ai-service/app/main.py) and planned [T-015 checks](TESTING_STRATEGY.md#test-register).
+
+`GET /ai/chat/sessions?course_id={uuid}` lists only the authenticated actor's sessions after tutor-scope checks. `GET /ai/chat/sessions/{id}/messages` restores the persisted conversation and authoritative citations. `GET /users/me/ai-usage` reports the actor's current-month provider request and token totals without returning prompt content.
 ## Foundation endpoints
 
 TASK-003 implements the five `/auth` operations. TASK-004 implements catalog list and detail, course create and update, course review, enrollment creation and the current student's enrollment list. See [auth routes](../backend/src/modules/auth/routes.ts), [course and enrollment routes](../backend/src/modules/courses/routes.ts) and [integration checks](../backend/test/foundation.test.js).
@@ -158,8 +166,10 @@ TASK-009 adds assignment creation, private submission, rubric grading and signed
 
 - `POST /ai/lectures/{id}/summarize` requires an enrolled student and returns a transcript-only summary with validated source chunk references.
 - `POST /ai/modules/{id}/flashcards` requires an enrolled student and uses active chunks from that module only.
+- Generated cards are saved to the learner's private deck. `GET /users/me/flashcards?course_id={uuid}` lists cards only for currently enrolled courses; `POST /users/me/flashcards/{id}/review` advances the card's due date by one day.
+- `POST /ai/lectures/{id}/ingest` combines owner-supplied transcript/notes with the lecture's validated PDF, PPTX and WebVTT assets, chunks the source while retaining page/slide/time metadata, embeds the generation and leaves a separate publish action.
 - `POST /ai/modules/{id}/quiz-draft` requires the course instructor or admin and an `Idempotency-Key`; it creates a private AI quiz draft with 5–10 evidence-checked questions. A retry returns the same draft. Existing `GET /quizzes/{id}/review` and `POST /quizzes/{id}/review` provide instructor review and approval.
-- `POST /courses/{id}/topics` is owner/admin scoped. `GET /users/me/mastery`, `/users/me/study-plan` and `/users/me/recommendations` are learner-private. Finalized quiz topic scores feed deterministic mastery replay.
+- `POST /courses/{id}/topics` is owner/admin scoped. `GET /users/me/mastery`, `/users/me/study-plan` and `/users/me/recommendations` are learner-private. Finalized quiz topic scores feed deterministic mastery replay; the study plan stores and returns a seven-day UTC schedule with daily time estimates.
 - `GET /admin/courses/pending`, `GET /admin/users`, `PUT /admin/users/{id}/roles` and `POST /admin/users/{id}/suspend` require admin. Role and suspension changes revoke sessions and write audit rows.
 - `GET /admin/analytics/overview` reports DAU, enrollments, completion rate and synthetic payment revenue. `GET /admin/moderation/reports` and `POST /admin/moderation/reports/{id}/review` require admin.
 

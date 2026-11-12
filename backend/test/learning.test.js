@@ -374,6 +374,8 @@ test('T-016–020 grounded tools, mastery planning and governance APIs enforce s
   assert.equal(mastery.find(item=>item.topic_id===topic.id).score,0.6)
   const plan=(await get('/users/me/study-plan',sessions.student3).expect(200)).body
   assert.equal(plan.steps[0].reason,'Prior finalized quiz performance indicates this priority')
+  assert.equal(plan.days.length,7)
+  assert.ok(plan.steps.every(step=>step.scheduled_for&&step.estimated_minutes>0))
   const candidate=(await post('/courses',sessions.author,{title:'Sorting project challenge '+run,description:'Practice sorting fundamentals',category:'Testing',difficulty:'intermediate',price:0,pricing_tier:'free'}).expect(201)).body
   await post('/courses/'+candidate.id+'/approve',sessions.admin,{decision:'approved'}).set('If-Match',candidate.revision).expect(200)
   const suggestions=(await get('/users/me/recommendations',sessions.student3).expect(200)).body.items
@@ -421,6 +423,7 @@ test('T-016–017 approved internal adapter returns lecture tools and keeps gene
     const path=req.url
     const result=path==='/v1/summarize'?{summary:`Sorting uses a pivot [${chunk.id}]`,sources:[{chunk_id:chunk.id}]}:
       path==='/v1/flashcards'?{items:[{question:'What does a pivot do?',answer:'Partitions values around itself.'}]}:
+      path==='/v1/study-plan'?{days:Array.from({length:7},(_,index)=>({day:index+1,steps:index===0?[{topic:body.payload.topics[0].name,action:'Review the core lesson and practice.',estimated_minutes:30}]:[]}))}:
       {title:'Generated transcript quiz',questions}
     res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(result))
   })
@@ -435,11 +438,20 @@ test('T-016–017 approved internal adapter returns lecture tools and keeps gene
     assert.equal(summary.sources[0].lecture_id,lecture.id)
     const cards=(await post('/ai/modules/'+module.id+'/flashcards',sessions.student,{}).expect(200)).body
     assert.equal(cards.items[0].question,'What does a pivot do?')
+    assert.ok(cards.items[0].id)
+    const savedCards=(await get('/users/me/flashcards?course_id='+course.id,sessions.student).expect(200)).body.items
+    assert.ok(savedCards.some(item=>item.id===cards.items[0].id))
+    await post('/users/me/flashcards/'+cards.items[0].id+'/review',sessions.student,{}).expect(200)
+    await post('/users/me/flashcards/'+cards.items[0].id+'/review',sessions.outsider,{}).expect(404)
+    const personalized=(await post('/ai/study-plan',sessions.student,{course_id:course.id}).expect(200)).body
+    assert.equal(personalized.days.length,7)
+    assert.equal(personalized.days[0].steps[0].topic,'Sorting fundamentals')
+    assert.equal((await get('/users/me/study-plan?course_id='+course.id,sessions.student).expect(200)).body.days.length,7)
     const draftKey=randomUUID()
     const draft=(await post('/ai/modules/'+module.id+'/quiz-draft',sessions.author,{},draftKey).expect(201)).body
     assert.equal(draft.questions.length,5);assert.equal(draft.status,'draft')
     const retry=(await post('/ai/modules/'+module.id+'/quiz-draft',sessions.author,{},draftKey).expect(201)).body
-    assert.equal(retry.quiz_id,draft.quiz_id);assert.equal(providerCalls,3)
+    assert.equal(retry.quiz_id,draft.quiz_id);assert.equal(providerCalls,4)
     await post('/quizzes/'+draft.quiz_id+'/attempt',sessions.student,{}).expect(404)
     await get('/quizzes/'+draft.quiz_id+'/review',sessions.student).expect(403)
     const review=(await get('/quizzes/'+draft.quiz_id+'/review',sessions.author).expect(200)).body
@@ -457,11 +469,23 @@ test('T-016–017 approved internal adapter returns lecture tools and keeps gene
 test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and chat replay conflict', async () => {
   let chatCalls = 0
   let publishedChunkId
+  let lastChatPayload
   const vectorLiteral = '[' + Array.from({ length: 1536 }, (_, idx) => (idx === 0 ? '1' : '0')).join(',') + ']'
   const server = createServer(async (req, res) => {
     const pieces = []
     for await (const piece of req) pieces.push(piece)
     const body = JSON.parse(Buffer.concat(pieces).toString())
+    if (req.url === '/v1/extract') {
+      const { rows: assets } = await db.query('SELECT id,name FROM lecture_assets WHERE id=ANY($1::uuid[])', [body.payload.resource_ids])
+      const documents = assets.flatMap(asset => asset.name === 'handout.pdf'
+        ? [{ source_asset_id: asset.id, source_name: asset.name, page_number: 2, text: 'PDF extracted topic details.' }]
+        : asset.name === 'slides.pptx'
+          ? [{ source_asset_id: asset.id, source_name: asset.name, page_number: 1, text: 'Slide extracted topic details.' }]
+          : [{ source_asset_id: asset.id, source_name: asset.name, start_seconds: 42, end_seconds: 47, text: 'Captioned topic details.' }])
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ documents }))
+      return
+    }
     if (req.url === '/v1/embed') {
       const generationId = body.payload.generation_id
       const { rows } = await db.query('SELECT id FROM ai_chunks WHERE generation_id=$1 ORDER BY ordinal', [generationId])
@@ -473,6 +497,7 @@ test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and
     }
     if (req.url === '/v1/chat') {
       chatCalls++
+      lastChatPayload = body.payload
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({
         reply: `Quicksort explanation grounded in [${publishedChunkId}].`,
@@ -497,6 +522,10 @@ test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and
       segments: [{ start_seconds: 1, end_seconds: 5, text: 'Quicksort selects a pivot and partitions elements in place.' }]
     }).expect(202)).body
     assert.equal(ingest.status, 'processing')
+    const indexed = await db.query('SELECT source_name,page_number,start_seconds FROM ai_chunks WHERE generation_id=$1', [ingest.id])
+    assert.ok(indexed.rows.some(row=>row.source_name==='handout.pdf'&&row.page_number===2))
+    assert.ok(indexed.rows.some(row=>row.source_name==='slides.pptx'&&row.page_number===1))
+    assert.ok(indexed.rows.some(row=>row.source_name==='captions.vtt'&&row.start_seconds===42))
     const activated = (await post('/ai/jobs/' + ingest.id + '/publish', sessions.author, {}).expect(200)).body
     assert.equal(activated.status, 'active')
 
@@ -512,6 +541,9 @@ test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and
     assert.equal((await db.query('SELECT count(*)::int n FROM learner_activity WHERE user_id=$1', [sessions.author.user.id])).rows[0].n, 0)
 
     const studentSession = (await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(201)).body
+    const secondSession = (await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(201)).body
+    assert.ok((await get('/ai/chat/sessions?course_id='+course.id,sessions.student).expect(200)).body.items.length>=2)
+    assert.equal((await get('/ai/chat/sessions?course_id='+course.id,sessions.student2).expect(200)).body.items.length,0)
     await get('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.author).expect(404)
 
     const msgRequestId = randomUUID()
@@ -526,6 +558,16 @@ test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and
     }).expect(200)).body
     assert.deepEqual(replaySame, first)
     assert.equal(chatCalls, callsBefore + 1)
+    await post('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.student, {
+      message: 'What happens next?', request_id: randomUUID()
+    }).expect(200)
+    assert.equal(lastChatPayload.history.length,2)
+    assert.equal(lastChatPayload.history[0].content,'How does partitioning work?')
+    assert.equal(lastChatPayload.history[1].role,'assistant')
+    await post('/ai/chat/sessions/' + secondSession.id + '/messages', sessions.student, {
+      message: 'A separate question', request_id: randomUUID()
+    }).expect(200)
+    assert.deepEqual(lastChatPayload.history,[])
     await post('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.student, {
       message: 'Different question reusing request_id',
       request_id: msgRequestId

@@ -87,6 +87,12 @@ async function version(client: PoolClient, quizId: string, number: number) {
 }
 
 async function addVersion(client: PoolClient, quizId: string, number: number, body: z.infer<typeof versionInput>) {
+  const topicIds=[...new Set(body.questions.map(item=>item.topic_id).filter((topicId):topicId is string=>Boolean(topicId)))]
+  if(topicIds.length){
+    const {rows:[scope]}=await client.query('SELECT m.course_id FROM quizzes q JOIN modules m ON m.id=q.module_id WHERE q.id=$1',[quizId])
+    const {rows:topics}=await client.query('SELECT id FROM learning_topics WHERE course_id=$1 AND id=ANY($2::uuid[])',[scope.course_id,topicIds])
+    if(topics.length!==topicIds.length)throw invalid('Every quiz topic must belong to the quiz course')
+  }
   const questions = body.questions.map(q => ({
     ...q, id: randomUUID(), options: q.options?.map(option => ({ ...option, id: randomUUID() }))
   }))
