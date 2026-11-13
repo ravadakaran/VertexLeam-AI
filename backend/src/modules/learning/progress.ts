@@ -12,7 +12,9 @@ type Heartbeat = {
 async function view(client: PoolClient, enrollment: string, lecture: string, duration: number) {
   const { rows: [row] } = await client.query(`
     SELECT coalesce(p.position_seconds, 0) AS position_seconds,
-      coalesce((SELECT sum(upper(r)-lower(r))::int FROM unnest(p.coverage) AS r),0) AS watched_seconds
+      coalesce((SELECT sum(upper(r)-lower(r))::int FROM unnest(p.coverage) AS r),0) AS watched_seconds,
+      coalesce(p.rewatch_count, 0)::int AS rewatch_count,
+      p.last_watched_at
     FROM enrollments e LEFT JOIN lecture_progress p ON p.enrollment_id=e.id AND p.lecture_id=$2
     WHERE e.id=$1
   `, [enrollment, lecture])
@@ -52,17 +54,27 @@ export async function writeProgress(user: Profile, id: string, body: Heartbeat) 
       return view(client, enrollment, id, duration)
     }
     const ranges = '{' + body.played_ranges.map(range => `[${range.start_seconds},${range.end_seconds})`).join(',') + '}'
+    const { rows: [priorProgress] } = await client.query(`
+      SELECT position_seconds, playback_ordinal, coalesce(rewatch_count, 0)::int AS rewatch_count,
+        coalesce((SELECT sum(upper(r)-lower(r))::int FROM unnest(coverage) AS r), 0) AS watched_seconds
+      FROM lecture_progress WHERE enrollment_id=$1 AND lecture_id=$2
+    `, [enrollment, id])
+    const isRewatch = Boolean(priorProgress && duration > 0 && priorProgress.watched_seconds >= duration &&
+      (playback.ordinal > priorProgress.playback_ordinal || (body.position_seconds < priorProgress.position_seconds && body.played_ranges.some(r => r.start_seconds <= 2))))
+    const rewatchInc = isRewatch ? 1 : 0
     await client.query(`
-      INSERT INTO lecture_progress AS p(enrollment_id,lecture_id,coverage,position_seconds,playback_ordinal,sequence)
-      VALUES($1,$2,$3,$4,$5,$6)
+      INSERT INTO lecture_progress AS p(enrollment_id,lecture_id,coverage,position_seconds,playback_ordinal,sequence,rewatch_count,last_watched_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,now())
       ON CONFLICT(enrollment_id,lecture_id) DO UPDATE SET coverage=p.coverage+excluded.coverage,
+        rewatch_count=p.rewatch_count+excluded.rewatch_count,
+        last_watched_at=now(),
         (position_seconds,playback_ordinal,sequence) = (
           SELECT CASE WHEN n THEN excluded.position_seconds ELSE p.position_seconds END,
                  CASE WHEN n THEN excluded.playback_ordinal ELSE p.playback_ordinal END,
                  CASE WHEN n THEN excluded.sequence ELSE p.sequence END
           FROM (SELECT (excluded.playback_ordinal,excluded.sequence)>(p.playback_ordinal,p.sequence) AS n) ordering
         )
-    `, [enrollment, id, ranges, body.position_seconds, playback.ordinal, body.sequence])
+    `, [enrollment, id, ranges, body.position_seconds, playback.ordinal, body.sequence, rewatchInc])
     await client.query(`
       INSERT INTO enrollment_curriculum(enrollment_id,lecture_id)
       SELECT $1,l.id FROM lectures l JOIN modules m ON m.id=l.module_id

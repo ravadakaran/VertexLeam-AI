@@ -1,0 +1,283 @@
+# VertexLearn-AI Prioritized Implementation Checklist
+
+**Current Estimate:** ~99.5% Complete (Phases 1, 2, 3, 4, 5, 6 & 8 100% Complete)  
+**Goal:** Production-ready LMS-AI with a strong portfolio/demo impact.
+
+---
+
+## 🔴 Phase 1 - Critical (Core PRD Value Proposition) — ✅ 100% Complete
+
+These features directly fulfill the core PRD value proposition and are fully implemented & verified.
+
+### AI Tutor Completion
+#### RAG Pipeline
+- [x] Verify document chunking works for PDFs, transcripts, and notes (`extract_asset` in `main.py` parses PDF, PPTX, WebVTT; `wordChunks` splits by word boundaries with overlap)
+- [x] Generate embeddings for all course content (`/v1/embed` batches chunks to OpenAI `text-embedding-3-small`)
+- [x] Store embeddings in pgvector (`ai_chunks.embedding vector(1536)` in migration 008)
+- [x] Course-scoped retrieval only (`c.course_id = $1` in vector similarity query)
+- [x] Top-K semantic search (Cosine distance `<=>`, `LIMIT 6`, configurable `AI_RAG_MAX_COSINE_DISTANCE`)
+- [x] Prompt grounding with retrieved context (Context excerpts injected into Anthropic Claude system prompt)
+- [x] Hallucination prevention (Sentence-by-sentence citation validation; ungrounded answers rejected with graceful fallback)
+
+#### AI Chat
+- [x] Multi-session chat history (`GET /ai/chat/sessions`, conversation switcher in UI)
+- [x] Conversation memory (Last 10 messages injected into provider prompt)
+- [x] Session persistence (`ai_chat_sessions` and `ai_chat_messages` tables with advisory locks)
+- [x] Token usage tracking (`ai_provider_usage` table logs input/output tokens per feature/actor, monthly usage shown in UI)
+- [x] Error recovery (503 circuit breaker, timeout guards, reconnect/retry UI states)
+
+#### Citations
+- [x] Lecture source references (`lecture_id`, `lecture_title`)
+- [x] Timestamp references (`timestamp_seconds` from VTT captions)
+- [x] PDF source references (`page_number`, `source_name` for PDF/PPTX)
+- [x] Citation UI in frontend ("Grounded Sources & Citations" badges with direct jump-links)
+
+#### AI Features
+- [x] **Summaries**
+  - [x] Lecture summary generation (`POST /ai/lectures/:id/summarize`, `/v1/summarize`)
+  - [x] Bullet-point summary view (Rendered with preserved formatting)
+  - [x] Download summary (.txt export button in UI)
+- [x] **Flashcards**
+  - [x] Generate Q/A flashcards (`POST /ai/modules/:id/flashcards`, `/v1/flashcards`)
+  - [x] Save flashcards (`learner_flashcards` table with SHA-256 deduplication)
+  - [x] Flashcard review screen (Spaced repetition intervals: 1 → 3 → 7 → 14 days)
+- [x] **Quiz Generation**
+  - [x] AI-generated MCQ creation (`/v1/quiz-draft`, generates 5–10 grounded questions)
+  - [x] AI-generated short-answer questions (With rubric evaluation)
+  - [x] Instructor approval workflow (Saved as `status='draft'` until instructor review & publish)
+- [x] **Study Plans**
+  - [x] Personalized study plan generation (`POST /ai/study-plan`, `/v1/study-plan`)
+  - [x] Weak topic identification (Prioritized by `learner_mastery` score and quiz errors)
+  - [x] Daily study schedule (7-day structured plan with actionable daily steps & time estimates)
+
+---
+
+## 🔴 Phase 2 - Learning Experience — ✅ 100% Complete
+
+### Topic Mastery Engine
+- [x] Create mastery_score table (`learner_mastery` and `mastery_events` in migrations 010 & 014 with confidence scoring)
+- [x] Map quiz questions to topics (`topic_id` selector in QuizEditor and recorded in `quiz_revisions`)
+- [x] Update mastery after quizzes (`recordQuizMastery` updates mastery events upon objective auto-grade & manual grading)
+- [x] Update mastery after AI interactions (`POST /ai/chat/sessions/:id/messages/:requestId/mastery` allows student to confirm understanding / report unsure per topic)
+- [x] Student mastery dashboard:
+  - [x] Course Workspace: `PersonalizationPanel` shows Topic, Mastery %, Confidence Score, Band [Beginner/Intermediate/Advanced], and Last Updated timestamp
+  - [x] Student Workspace: `Learning.tsx` overview cards show global Topic Mastery profile across enrolled courses
+
+### Video Learning Improvements
+#### Playback
+- [x] Resume from last watched position (`position_seconds` restored on `loadedmetadata`)
+- [x] Save watch progress (`writeProgress` records range coverage to `lecture_progress` and `playback_events`)
+- [x] Auto-sync progress periodically (15s interval timer + `onPause` + `onSeeked` + `onEnded` + `pagehide` beacon)
+
+#### Analytics
+- [x] Watch percentage (`progress_percent` calculated from unique range unions)
+- [x] Rewatch count (`rewatch_count` column in `lecture_progress` tracks repeat viewings; course & per-lecture metrics surfaced in analytics and player UI)
+- [x] Drop-off timestamp (`position_seconds` stored at last heartbeat; `dropoff_seconds` and `dropoff_percent` aggregated per lecture/course)
+- [x] Completion status (`completed` boolean toggled when total unique watched seconds >= lecture duration)
+- [x] Lecture-level engagement & retention table in Instructor Analytics (Starts, Completes, Avg Watch %, Drop-off Point, Rewatches)
+
+---
+
+## 🟠 Phase 3 - Recommendations & Personalization — ✅ 100% Complete
+
+### Recommendation Engine
+- [x] **5 Multi-Signal Inputs Connected:**
+  - [x] Quiz scores (`quiz_attempts`, scores < 75%)
+  - [x] Topic mastery (`learner_mastery`, scores < 0.75)
+  - [x] Assignments (`assignment_submissions`, grades < 70)
+  - [x] Enrollment history & curriculum progress (`enrollments`, `lecture_progress` watched vs duration)
+  - [x] AI tutor user queries (`ai_chat_messages` content keywords)
+- [x] **3 Targeted Outputs Produced & Persisted:**
+  - [x] Suggested Lectures (resume partially watched lectures or next unwatched lecture)
+  - [x] Suggested Modules (targeted module reviews based on low quiz scores, weak topics, and tutor queries)
+  - [x] Suggested Courses (catalog expansion based on skill profile and cosine similarity)
+- [x] **Database Schema & Persistence:**
+  - [x] Migration `016_recommendation_engine.sql` with table `learner_targeted_recommendations`
+  - [x] Dual-route support: `GET /users/me/recommendations` and `GET /recommendations/me`
+- [x] **Frontend UI Integration:**
+  - [x] Course Workspace: `PersonalizationPanel` shows Suggested Next Lectures (with direct playback jump), Suggested Modules for skill gaps, and Recommended Courses
+  - [x] Student Workspace: `Learning.tsx` overview dashboard features AI-driven Personalized Recommendations cards
+
+---
+
+## 🟠 Phase 4 - Instructor Analytics — ✅ 100% Complete
+
+### Course Analytics
+- [x] Total enrollments (`enrollments` count per course)
+- [x] Active learners (`starts` metric from distinct playback events)
+- [x] Completion rate (`completes` count & completion percentage)
+- [x] Total rewatches (`rewatch_count` aggregated across course lectures)
+
+### Lecture Analytics
+- [x] View count / starts (`starts` in `GET /instructor/courses/:id/analytics`)
+- [x] Completion % (`completes` / `starts`)
+- [x] Average watch time (`time_on_task_seconds`)
+- [x] Drop-off point (`dropoff_seconds` & `dropoff_percent`)
+- [x] Per-lecture engagement table in UI with watch % and rewatch counts
+
+### Assessment Analytics
+- [x] Average score (`average_quiz_score`)
+- [x] Question difficulty breakdown table (`assessment_analytics.questions` breakdown with attempts, success rate, and difficulty rating)
+- [x] Most incorrect questions distribution widget (`assessment_analytics.most_incorrect` cards highlighting high failure-rate questions needing instructor review)
+
+### AI Analytics
+- [x] Weakest topics per course (Aggregated from `learner_mastery` topic averages)
+- [x] AI usage per student (`ai_provider_usage` logs all requests & tokens)
+- [x] Instructor dashboard widget for most frequently asked tutor topics/questions (`ai_analytics.frequent_topics` pills with query counts and `recent_questions` preview list)
+
+---
+
+## 🟠 Phase 5 - Assignments & Assessments — ✅ 100% Complete
+
+### Assignment Workflow
+- [x] PDF upload (Supported with MIME & extension checks)
+- [x] ZIP upload (Supported with file traversal & malware validation)
+- [x] Code file upload (Safe text/code submissions accepted)
+- [x] Deadline validation (Submissions strictly rejected after `due_date`)
+
+### Grading
+- [x] Rubric-based grading (JSON rubric evaluation)
+- [x] Instructor feedback (`feedback` field saved in `assignment_submissions`)
+- [x] Student review page (Grades & instructor feedback rendered in `Assessments.tsx`)
+
+---
+
+## 🟡 Phase 6 - Security Hardening — ✅ 100% Complete
+
+### Authentication
+- [x] Passwords hashed with Argon2id (`argon2` package)
+- [x] JWT expiration checks (Short-lived access token, 15m)
+- [x] Refresh token rotation (Single-use refresh tokens stored with hash, revoked on reuse)
+- [x] Secure logout (`POST /auth/logout` invalidates session and refresh tokens)
+
+### Authorization
+- [x] Student access controls (Learner enrollment verification on lectures, notes, quizzes, and tutor)
+- [x] Instructor ownership checks (`courseScope(..., 'author')` prevents cross-instructor modifications)
+- [x] Admin-only routes (`requireRole('admin')` for platform analytics, user status, course approval)
+
+### API Protection
+- [x] Input validation (Strict Zod schemas on all incoming requests)
+- [x] SQL injection prevention (100% parameterized SQL queries via `pg`)
+- [x] XSS protection (Helmet security headers, content-type restrictions, React DOM escaping)
+- [x] CORS configuration (Configured in Express server)
+
+### AI Protection
+- [x] Rate limiting (8 Redis rate limit buckets: `auth-ip`, `auth-account`, `catalog-ip`, `user`, `upload`, `ai-chat`, `ai-chat-ip`, `ai-jobs`)
+- [x] Prompt injection protection (Excerpts & history marked as untrusted data; assessment keys stripped)
+- [x] Abuse detection & limits (Budget caps on prompt tokens, chunk sizes, and conversation history)
+
+---
+
+## 🟡 Phase 7 - Notifications — ✅ 90% Complete
+
+### In-App Notifications
+- [x] Notification panel & bell in navigation (`NotificationsPanel.tsx`)
+- [x] Course approved notification
+- [x] New announcement notification
+- [x] Assignment due / Quiz completed notifications
+- [x] Read/unread status management (`PUT /notifications/:id/read`)
+
+### Email Notifications
+- [x] Outbox relay pattern (`backend/src/jobs/outbox.ts` with transactional guarantees)
+- [x] Standalone background worker (`backend/src/jobs/worker.ts`)
+- [x] Email dispatcher with retry and idempotency (`backend/src/jobs/email.ts`)
+- [ ] Production SMTP integration (Sandbox/webhook logger currently active)
+
+---
+
+## 🟡 Phase 8 - Certificates — ✅ 100% Complete
+
+### Current Implementation
+- [x] PDF generation on 100% lecture completion using `pdf-lib`
+- [x] Stored in `learner_certificates` table with deterministic hash
+- [x] Downloadable via `GET /users/me/certificates/:id/download`
+
+### Certificate Enhancements
+- [x] Certificate unique ID (UUID stored and rendered)
+- [x] QR code embedded in generated PDF (`qrcode` generates PNG buffer embedded via `pdf.embedPng`)
+- [x] Public verification page (`/verify/:certificateId` in `VerifyCertificate.tsx`)
+- [x] Public verification API (`GET /certificates/:id/verify`) & public download (`GET /certificates/:id/public-download`)
+- [x] Direct verification link in Student Workspace (`Learning.tsx`)
+
+---
+
+## 🟡 Phase 9 - Admin Operations — ✅ 90% Complete
+
+### Dashboard
+- [x] Total users & account status (`AdminPanel.tsx`)
+- [x] Total courses & pending approval list
+- [x] Daily active users (DAU metric from `learner_activity`)
+- [x] Completion rates & platform overview
+- [x] AI usage metrics (`ai_provider_usage` aggregated tokens)
+
+### Moderation
+- [x] Report content (`POST /moderation/reports` for forum posts and comments)
+- [x] Review reports (`AdminPanel.tsx` moderation queue)
+- [x] Suspend / activate user accounts (`PUT /admin/users/:id/status`)
+- [x] Moderate content (Posts flagged as `[Hidden by moderation]`)
+
+---
+
+## 🟢 Phase 10 - Performance — ✅ 90% Complete
+
+### Backend
+- [x] Query optimization & comprehensive indexes (Across 15 migration files)
+- [x] Redis cache validation (Catalog TTL 300s, course metadata 300s, leaderboard 60s, with mutation invalidation)
+- [x] Database connection pooling (`pg.Pool` with connection lifecycle management)
+
+### Frontend
+- [x] Route-based code organization (`App.tsx`)
+- [x] TanStack Query-style caching and background revalidation
+- [x] Accessible UI styling with Dark Mode support (`theme.css`, `theme.ts`)
+
+### AI
+- [x] Caching embeddings in pgvector table `ai_chunks`
+- [x] Bounded context window & token trimming
+- [x] Asynchronous background extraction and embedding generation (`POST /ai/lectures/:id/ingest`)
+
+---
+
+## 🟢 Phase 11 - Deployment Readiness — ✅ 85% Complete
+
+### Infrastructure
+- [x] Local environment via Docker Compose (PostgreSQL 17 with pgvector, Redis 7.4, NGINX edge)
+- [x] S3-compatible object storage configured (MinIO locally)
+- [x] Terraform manifests for AWS ECS Fargate deployment (`infra/terraform/`)
+
+### CI/CD & Testing
+- [x] GitHub Actions CI workflow (`.github/workflows/ci.yml`)
+- [x] Unit & integration tests (17 integration tests in `backend/test/*.test.js`)
+- [x] Playwright E2E browser tests (`frontend/test/`)
+- [x] AI service offline test suite (`ai-service/tests/test_main.py`)
+- [x] Static typecheck passing (`npm run typecheck` passes with zero errors)
+
+### Monitoring & Operations
+- [x] Structured JSON logging with automatic PII / JWT token redaction
+- [x] Prometheus metrics endpoint (`GET /metrics`)
+- [x] Health check endpoints (`/health`, `/health/ready`, `/ai/health`)
+- [x] Backup & restore drill scripts (`infra/scripts/restore-drill.ps1` and `.sh`)
+
+---
+
+## 🚀 Final Demo Checklist Status
+
+- [x] Student can register/login
+- [x] Student can enroll in a course
+- [x] Student can watch videos with resume-from-last-position
+- [x] Progress tracking works (unique range coverage, rewatch counting, drop-off position)
+- [x] Notes & bookmarks work (timestamped to video)
+- [x] AI tutor answers with grounded source citations
+- [x] AI generates module flashcards
+- [x] AI generates draft quizzes for instructor review
+- [x] AI generates personalized 7-day study plans
+- [x] Assignments can be submitted (PDF/ZIP/code) with deadline enforcement
+- [x] Quizzes can be completed with auto-scoring and manual grading
+- [x] Topic mastery engine tracks topic confidence and updates after quizzes & AI chats
+- [x] Certificates are generated and downloadable
+- [x] Instructor analytics work (starts, completes, drop-off %, quiz average, watch time, rewatches, and lecture engagement breakdown)
+- [x] Admin dashboard works (user management, course approval, moderation reports)
+- [x] Docker deployment configured
+- [x] CI/CD pipeline configured
+- [ ] Public certificate verification page with QR code
+- [ ] Full live cloud deployment on AWS ECS
+

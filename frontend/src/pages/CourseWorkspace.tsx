@@ -13,27 +13,135 @@ export type Lecture = {
 type Module = { id: string; title: string; order_index: number; lectures: Lecture[] }
 type CourseDetail = { course: Course; modules: Module[] }
 type Grant = { url: string; playback_id: string; captions_url?: string }
-type Progress = { position_seconds: number; watched_seconds: number; completed: boolean; progress_percent: number }
+type Progress = { position_seconds: number; watched_seconds: number; completed: boolean; progress_percent: number; rewatch_count?: number; last_watched_at?: string; dropoff_seconds?: number }
 type Annotation = { id: string; timestamp_seconds: number; content?: string }
 type TutorSource = { lecture_id: string; lecture_title: string; timestamp_seconds?: number; page_number?: number; source_name?: string }
 type TutorSession = { id: string; course_id: string; mode: string; created_at?: string; last_question?: string }
-type TutorMessage = { role: 'user'|'assistant'; content: string; sources?: TutorSource[] }
-type TutorReply = { reply: string; mode: string; sources: TutorSource[] }
-type CourseAnalytics = { starts: number; completes: number; average_quiz_score: number | null; time_on_task_seconds: number; dropoff_percent: number | null }
+type TutorMessage = { request_id?:string; role: 'user'|'assistant'; content: string; sources?: TutorSource[] }
+type TutorReply = { request_id:string; reply: string; mode: string; sources: TutorSource[] }
+type LectureMetric = { lecture_id: string; title: string; duration_seconds: number; starts: number; completes: number; dropoff_seconds: number; rewatch_count: number; avg_watch_percent: number; dropoff_percent: number | null }
+type QuestionMetric = {
+  question_id: string
+  quiz_id: string
+  quiz_title: string
+  question_text: string
+  question_type: string
+  max_points: number
+  total_attempts: number
+  correct_attempts: number
+  incorrect_attempts: number
+  success_rate: number | null
+  difficulty: 'easy' | 'moderate' | 'hard' | 'unassessed'
+}
+type AssessmentAnalytics = {
+  average_score: number | null
+  finalized_attempts: number
+  questions: QuestionMetric[]
+  most_incorrect: QuestionMetric[]
+}
+type AIAnalytics = {
+  total_queries: number
+  unique_students: number
+  total_sessions: number
+  frequent_topics: Array<{ topic: string; count: number }>
+  recent_questions: Array<{ content: string; created_at: string }>
+}
+type CourseAnalytics = {
+  starts: number
+  completes: number
+  average_quiz_score: number | null
+  time_on_task_seconds: number
+  dropoff_percent: number | null
+  rewatch_count?: number
+  lectures?: LectureMetric[]
+  assessment_analytics?: AssessmentAnalytics
+  ai_analytics?: AIAnalytics
+}
 type StudyCards = { summary?: string; sources?: Array<TutorSource>; items?: Array<{id:string;question:string;answer:string;next_review_at?:string}> }
 type SavedFlashcard = {id:string;module_title:string;course_title:string;question:string;answer:string;next_review_at:string}
 
-function PersonalizationPanel({courseId}:{courseId:string}){
-  const mastery=useData<{items:Array<{topic_id:string;name:string;score:number;band:string}>}>('/users/me/mastery')
+type RecLecture = { lecture_id: string; module_id: string; course_id: string; course_title: string; title: string; duration_seconds: number; progress_percent: number; dropoff_seconds: number; score: number; reason: string; input_signal?: string }
+type RecModule = { module_id: string; course_id: string; course_title: string; title: string; score: number; reason: string; input_signal?: string }
+type RecCourse = { course_id: string; title: string; score: number; reason: string; input_signal?: string }
+type RecommendationData = { items: RecCourse[]; courses?: RecCourse[]; modules?: RecModule[]; lectures?: RecLecture[] }
+
+function PersonalizationPanel({courseId, onSelectLecture}:{courseId:string; onSelectLecture?:(lectureId:string)=>void}){
+  const mastery=useData<{items:Array<{topic_id:string;name:string;score:number;confidence:number;updated_at?:string;band:string}>}>('/users/me/mastery?course_id='+encodeURIComponent(courseId))
   const plan=useData<{days:Array<{day:number;scheduled_for:string;steps:Array<{order?:number;course_title?:string;topic:string;action:string;reason?:string;mastery?:number;estimated_minutes:number}>}>}>('/users/me/study-plan?course_id='+encodeURIComponent(courseId))
-  const recommendations=useData<{items:Array<{course_id:string;title:string;score:number;reason:string}>}>('/users/me/recommendations')
+  const recommendations=useData<RecommendationData>('/users/me/recommendations')
+  useEffect(()=>{const refresh=()=>mastery.refresh();window.addEventListener('mastery-updated',refresh);return()=>window.removeEventListener('mastery-updated',refresh)},[courseId])
   const [generating,setGenerating]=useState(false),[generationError,setGenerationError]=useState('')
   async function generate(){setGenerating(true);setGenerationError('');try{await api('/ai/study-plan',json({course_id:courseId}));plan.refresh()}catch(failure){setGenerationError(String(failure))}finally{setGenerating(false)}}
-  return <section className="feature-section space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-bold">Your study plan</h2><button type="button" disabled={generating} className="secondary text-xs py-1.5 px-3" onClick={()=>void generate()}>{generating?'Building plan…':'Generate personalized plan'}</button></div><p className="text-xs text-slate-600 dark:text-slate-300">A seven-day schedule ordered around your finalized quiz results. Cold-start topics use the course syllabus.</p>{generationError&&<p role="alert" className="text-xs">{generationError}</p>}{plan.data?.days.map(day=><section key={day.day} className="border-t border-slate-200 dark:border-slate-700 pt-2"><h3 className="text-sm font-bold">Day {day.day} · {day.scheduled_for}</h3>{day.steps.length?day.steps.map((step,index)=><p key={step.order??index} className="text-sm text-slate-800 dark:text-slate-100"><strong>{step.topic}</strong>{step.course_title&&` · ${step.course_title}`} · {step.estimated_minutes} min<br/>{step.action} {step.reason&&<span className="text-slate-600 dark:text-slate-300">({step.reason})</span>}</p>):<p className="text-xs text-slate-600 dark:text-slate-300">Rest day or catch up on a previous topic.</p>}</section>)}
-    {!!mastery.data?.items.length&&<div><h3 className="text-sm font-bold">Topic mastery</h3>{mastery.data.items.map(topic=><p key={topic.topic_id} className="text-xs text-slate-700 dark:text-slate-200">{topic.name}: {Math.round(topic.score*100)}% · {topic.band}</p>)}</div>}
-    {!!recommendations.data?.items.length&&<div><h3 className="text-sm font-bold">Recommended courses</h3>{recommendations.data.items.map(item=><p key={item.course_id} className="text-xs text-slate-700 dark:text-slate-200">{item.title} · {item.reason}</p>)}</div>}
+  return <section className="feature-section space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="text-lg font-bold">Your study plan & recommendations</h2>
+      <button type="button" disabled={generating} className="secondary text-xs py-1.5 px-3" onClick={()=>void generate()}>{generating?'Building plan…':'Generate personalized plan'}</button>
+    </div>
+    <p className="text-xs text-slate-600 dark:text-slate-300">Targeted recommendations powered by your quiz scores, topic mastery, assignment feedback, and AI tutor interactions.</p>
+    {generationError&&<p role="alert" className="text-xs">{generationError}</p>}
+
+    {/* Suggested Next Lectures */}
+    {!!recommendations.data?.lectures?.length && (
+      <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Suggested lectures to watch next</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {recommendations.data.lectures.map(lec => (
+            <div key={lec.lecture_id} className="p-3 rounded-lg border border-indigo-200 dark:border-slate-700 bg-indigo-50/40 dark:bg-slate-800/80 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="font-semibold text-xs text-slate-900 dark:text-slate-100">{lec.title}</span>
+                  <span className="text-[10px] text-indigo-700 dark:text-indigo-300 font-mono">{formatSeconds(lec.duration_seconds)}</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 mb-2">{lec.reason}</p>
+              </div>
+              {onSelectLecture && (
+                <button type="button" className="secondary text-xs py-1 px-2.5 w-fit self-start" onClick={()=>onSelectLecture(lec.lecture_id)}>
+                  {lec.progress_percent > 0 ? `Resume (${lec.progress_percent}%)` : 'Start lecture'}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Suggested Modules */}
+    {!!recommendations.data?.modules?.length && (
+      <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Suggested modules for skill gaps</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {recommendations.data.modules.map(mod => (
+            <div key={mod.module_id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">{mod.title}</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block mb-1">{mod.course_title}</span>
+              <p className="text-xs text-slate-700 dark:text-slate-300 m-0">{mod.reason}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Study Plan Schedule */}
+    {plan.data?.days.map(day=><section key={day.day} className="border-t border-slate-200 dark:border-slate-700 pt-2"><h3 className="text-sm font-bold">Day {day.day} · {day.scheduled_for}</h3>{day.steps.length?day.steps.map((step,index)=><p key={step.order??index} className="text-sm text-slate-800 dark:text-slate-100"><strong>{step.topic}</strong>{step.course_title&&` · ${step.course_title}`} · {step.estimated_minutes} min<br/>{step.action} {step.reason&&<span className="text-slate-600 dark:text-slate-300">({step.reason})</span>}</p>):<p className="text-xs text-slate-600 dark:text-slate-300">Rest day or catch up on a previous topic.</p>}</section>)}
+
+    {/* Topic Mastery Meter */}
+    {!!mastery.data?.items.length&&<div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700"><h3 className="text-sm font-bold">Topic mastery</h3><p className="text-xs text-slate-600 dark:text-slate-300">Based on finalized quiz scores and your tutor check-ins. Confidence reflects the amount of evidence.</p>{mastery.data.items.map(topic=><div key={topic.topic_id} className="rounded-md border border-slate-200 dark:border-slate-700 p-2"><div className="flex items-center justify-between gap-2 text-xs"><strong>{topic.name}</strong><span>{Math.round(topic.score*100)}% · {topic.band}</span></div><div role="progressbar" aria-label={`${topic.name} mastery`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(topic.score*100)} className="mt-1 h-2 rounded bg-slate-200 dark:bg-slate-700"><div className="h-full rounded bg-indigo-600" style={{width:`${Math.round(topic.score*100)}%`}} /></div><p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">Confidence {Math.round(topic.confidence*100)}% · {topic.updated_at?`Updated ${new Date(topic.updated_at).toLocaleDateString()}`:'No evidence yet'}</p></div>)}</div>}
+
+    {/* Suggested Courses */}
+    {!!(recommendations.data?.courses?.length ?? recommendations.data?.items?.length) && (
+      <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+        <h3 className="text-sm font-bold">Recommended catalog courses</h3>
+        {(recommendations.data.courses ?? recommendations.data.items).map(item=><div key={item.course_id} className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs"><strong className="text-slate-900 dark:text-slate-100 block">{item.title}</strong><span className="text-slate-600 dark:text-slate-300">{item.reason}</span></div>)}
+      </div>
+    )}
+
     {(plan.error||mastery.error||recommendations.error)&&<p role="alert" className="text-xs">{plan.error||mastery.error||recommendations.error}</p>}
   </section>
+}
+
+function TopicManager({courseId}:{courseId:string}){
+  const topics=useData<{items:Array<{id:string;name:string;description:string}>}>('/courses/'+courseId+'/topics')
+  return <section className="feature-section space-y-3"><h2 className="text-lg font-bold">Course topics</h2><p className="text-xs text-slate-600 dark:text-slate-300">Map quiz questions to these topics to track learner mastery.</p><ActionForm label="Add topic" onSubmit={async data=>{await api('/courses/'+courseId+'/topics',json({name:data.get('name'),description:data.get('description')},requestKey()));topics.refresh();window.dispatchEvent(new Event('topics-updated'))}}><div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-semibold">Topic name<input name="name" required maxLength={120} className="mt-1" placeholder="e.g. Graph traversal"/></label><label className="text-xs font-semibold">Description<textarea name="description" maxLength={2000} rows={2} className="mt-1" placeholder="Optional learning outcomes"/></label></div></ActionForm>{topics.error&&<p role="alert">{topics.error}</p>}{topics.data?.items.length?<ul className="list-disc pl-5 text-sm">{topics.data.items.map(topic=><li key={topic.id}><strong>{topic.name}</strong>{topic.description&&` · ${topic.description}`}</li>)}</ul>:<p role="status" className="text-sm">No course topics yet.</p>}</section>
 }
 
 function ModuleLearningTools({moduleId,lectures}:{moduleId:string;lectures:Lecture[]}){
@@ -85,6 +193,7 @@ function formatSeconds(seconds: number): string {
 }
 
 function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewer?: boolean }) {
+  const topics=useData<{items:Array<{id:string;name:string}>}>('/courses/'+encodeURIComponent(courseId)+'/topics')
   const [session, setSession] = useState<TutorSession>()
   const [sessions, setSessions] = useState<TutorSession[]>([])
   const [messages, setMessages] = useState<TutorMessage[]>([])
@@ -92,6 +201,8 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
   const [mode, setMode] = useState('intermediate')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [selectedTopic,setSelectedTopic]=useState('')
+  const [feedback,setFeedback]=useState<Record<string,'understood'|'unsure'>>({})
 
   useEffect(() => {
     let cancelled=false
@@ -137,7 +248,7 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
       const answer=await api<TutorReply>('/ai/chat/sessions/' + current.id + '/messages', json({
         message: form.get('message'), request_id: crypto.randomUUID()
       }))
-      setMessages(previous=>[...previous,{role:'user',content:String(form.get('message'))},{role:'assistant',content:answer.reply,sources:answer.sources}])
+      setMessages(previous=>[...previous,{request_id:answer.request_id,role:'user',content:String(form.get('message'))},{request_id:answer.request_id,role:'assistant',content:answer.reply,sources:answer.sources}])
       if(!sessions.some(item=>item.id===current.id))setSessions(previous=>[current,...previous])
       setMode(active.mode)
       const currentUsage=await api<typeof usage>('/users/me/ai-usage').catch(()=>undefined)
@@ -145,6 +256,15 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
       event.currentTarget.reset()
     } catch (failure) { setError(String(failure)) }
     finally { setBusy(false) }
+  }
+
+  async function checkUnderstanding(message:TutorMessage,understood:boolean){
+    if(!session||!message.request_id||!selectedTopic)return
+    try{
+      await api(`/ai/chat/sessions/${session.id}/messages/${message.request_id}/mastery`,json({topic_id:selectedTopic,understood}))
+      setFeedback(current=>({...current,[message.request_id!]:understood?'understood':'unsure'}))
+      topics.refresh();window.dispatchEvent(new Event('mastery-updated'))
+    }catch(failure){setError(String(failure))}
   }
 
   return (
@@ -199,7 +319,7 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
       {error && <p role="alert">{error}</p>}
 
       {!!messages.length && <ol aria-label="Conversation" className="mt-5 space-y-3 list-none p-0">
-        {messages.map((message,index)=><li key={`${index}-${message.role}`} className={`p-3 rounded-lg border ${message.role==='assistant'?'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700':'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'}`}>
+        {messages.map((message,index)=><li key={`${message.request_id??index}-${message.role}`} className={`p-3 rounded-lg border ${message.role==='assistant'?'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700':'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'}`}>
           <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">{message.role==='assistant'?`Tutor · ${session?.mode??mode}`:'You'}</span>
           <p className="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed mb-0 mt-1">{message.content}</p>
           {!!message.sources?.length && (
@@ -214,6 +334,7 @@ function CourseTutor({ courseId, reviewer = false }: { courseId: string; reviewe
               </ul>
             </div>
           )}
+          {!reviewer&&message.role==='assistant'&&message.request_id&&!!topics.data?.items.length&&<div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 dark:border-slate-700 pt-2"><label className="text-xs">Check understanding for <select value={selectedTopic} onChange={event=>setSelectedTopic(event.target.value)} className="ml-1"><option value="">Choose a topic</option>{topics.data.items.map(topic=><option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></label>{feedback[message.request_id]?<span role="status" className="text-xs">Check-in saved: {feedback[message.request_id]==='understood'?'understood':'still unsure'}</span>:<><button type="button" className="secondary text-xs py-1 px-2" disabled={!selectedTopic} onClick={()=>void checkUnderstanding(message,true)}>I understand</button><button type="button" className="secondary text-xs py-1 px-2" disabled={!selectedTopic} onClick={()=>void checkUnderstanding(message,false)}>Still unsure</button></>}</div>}
         </li>)}
       </ol>}
     </section>
@@ -234,7 +355,7 @@ function AnalyticsPanel({ courseId }: { courseId: string }) {
 
       {report.data ? (
         <div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">Lecture starts</span>
               <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{report.data.starts}</span>
@@ -251,10 +372,203 @@ function AnalyticsPanel({ courseId }: { courseId: string }) {
               <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">Time watched</span>
               <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{report.data.time_on_task_seconds}s</span>
             </div>
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 col-span-2 sm:col-span-1">
+              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">Rewatches</span>
+              <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{report.data.rewatch_count ?? 0}</span>
+            </div>
           </div>
-          <p className="text-xs text-slate-600 dark:text-slate-300 m-0">
-            {report.data.starts} lecture starts · {report.data.dropoff_percent ?? '—'}% drop-off · {report.data.average_quiz_score ?? '—'} average quiz score · {report.data.time_on_task_seconds}s watched
+          <p className="text-xs text-slate-600 dark:text-slate-300 m-0 mb-4">
+            {report.data.starts} lecture starts · {report.data.dropoff_percent ?? '—'}% drop-off · {report.data.average_quiz_score ?? '—'} average quiz score · {report.data.time_on_task_seconds}s watched · {report.data.rewatch_count ?? 0} total rewatches
           </p>
+
+          {!!report.data.lectures?.length && (
+            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-2">Lecture engagement & retention</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400">
+                      <th className="py-2 pr-3 font-semibold">Lecture</th>
+                      <th className="py-2 px-3 font-semibold text-center">Avg Watch %</th>
+                      <th className="py-2 px-3 font-semibold text-center">Starts / Completes</th>
+                      <th className="py-2 px-3 font-semibold text-center">Drop-off point</th>
+                      <th className="py-2 pl-3 font-semibold text-right">Rewatches</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.data.lectures.map(lec => (
+                      <tr key={lec.lecture_id} className="border-b border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                        <td className="py-2 pr-3 font-medium text-slate-900 dark:text-slate-100">
+                          {lec.title} <span className="text-slate-400 text-[10px]">({formatSeconds(lec.duration_seconds)})</span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded font-semibold text-[11px] ${lec.avg_watch_percent >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
+                            {lec.avg_watch_percent}%
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center">{lec.starts} / {lec.completes}</td>
+                        <td className="py-2 px-3 text-center font-mono">{formatSeconds(lec.dropoff_seconds)}</td>
+                        <td className="py-2 pl-3 text-right font-semibold">{lec.rewatch_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 4: Assessment Analytics - Most Incorrect Questions Widget */}
+          {!!report.data.assessment_analytics?.most_incorrect?.length && (
+            <div className="mt-5 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-2.5">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 m-0">Most Challenging Questions</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 m-0">Questions with highest failure rates across learner attempts</p>
+                </div>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                  Needs Review
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {report.data.assessment_analytics.most_incorrect.map((q, idx) => (
+                  <div key={q.question_id + idx} className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-rose-200 dark:border-rose-900/60 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] mb-1">
+                        <span className="font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider">{q.quiz_title}</span>
+                        <span className="font-semibold text-rose-600 dark:text-rose-300">
+                          {q.success_rate !== null ? `${100 - q.success_rate}% incorrect` : '—'}
+                        </span>
+                      </div>
+                      <p className="text-xs font-medium text-slate-900 dark:text-slate-100 line-clamp-3 m-0 mb-2 leading-snug">
+                        {q.question_text}
+                      </p>
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex justify-between">
+                      <span>{q.incorrect_attempts} failed of {q.total_attempts} attempts</span>
+                      <span className="capitalize font-semibold text-rose-700 dark:text-rose-400">{q.difficulty}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Phase 4: Assessment Analytics - Question Difficulty Breakdown Table */}
+          {!!report.data.assessment_analytics?.questions?.length && (
+            <div className="mt-5 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-2">Question difficulty & performance breakdown</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400">
+                      <th className="py-2 pr-3 font-semibold">Question / Quiz</th>
+                      <th className="py-2 px-3 font-semibold text-center">Type</th>
+                      <th className="py-2 px-3 font-semibold text-center">Attempts</th>
+                      <th className="py-2 px-3 font-semibold text-center">Success Rate</th>
+                      <th className="py-2 pl-3 font-semibold text-right">Difficulty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.data.assessment_analytics.questions.map(q => (
+                      <tr key={q.question_id} className="border-b border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                        <td className="py-2 pr-3 font-medium text-slate-900 dark:text-slate-100 max-w-xs">
+                          <p className="line-clamp-2 m-0">{q.question_text}</p>
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">{q.quiz_title}</span>
+                        </td>
+                        <td className="py-2 px-3 text-center uppercase text-[10px] text-slate-500 font-mono">
+                          {q.question_type.replace('_', ' ')}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {q.total_attempts} <span className="text-slate-400 text-[10px]">({q.correct_attempts} correct)</span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {q.success_rate !== null ? (
+                            <span className={`px-2 py-0.5 rounded font-semibold text-[11px] ${
+                              q.success_rate >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' :
+                              q.success_rate >= 50 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' :
+                              'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                            }`}>
+                              {q.success_rate}%
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 italic">No attempts</span>
+                          )}
+                        </td>
+                        <td className="py-2 pl-3 text-right">
+                          <span className={`px-2 py-0.5 rounded-full capitalize text-[10px] font-bold ${
+                            q.difficulty === 'easy' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' :
+                            q.difficulty === 'moderate' ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800' :
+                            q.difficulty === 'hard' ? 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800' :
+                            'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                          }`}>
+                            {q.difficulty}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 4: AI Tutor Analytics - Frequently Asked Questions & Topics Widget */}
+          {report.data.ai_analytics && (
+            <div className="mt-5 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-2.5">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 m-0">AI Tutor Inquiries & Popular Topics</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 m-0">
+                    What learners are asking the course tutor ({report.data.ai_analytics.total_queries} queries across {report.data.ai_analytics.total_sessions} sessions by {report.data.ai_analytics.unique_students} students)
+                  </p>
+                </div>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  AI Insights
+                </span>
+              </div>
+
+              {/* Frequent Topics Pills */}
+              {report.data.ai_analytics.frequent_topics.length > 0 ? (
+                <div className="mb-3">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
+                    Frequently Inquired Concepts:
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {report.data.ai_analytics.frequent_topics.map(t => (
+                      <span key={t.topic} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+                        {t.topic}
+                        <span className="px-1.5 py-0.2 rounded-full bg-indigo-200 dark:bg-indigo-800 text-[10px] font-bold text-indigo-900 dark:text-indigo-100">
+                          {t.count}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic mb-3">No topic inquiries recorded yet.</p>
+              )}
+
+              {/* Recent Student Questions */}
+              {report.data.ai_analytics.recent_questions.length > 0 && (
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider block mb-2">
+                    Recent Questions Asked to Tutor:
+                  </span>
+                  <ul className="space-y-1.5 list-none p-0 m-0 text-xs">
+                    {report.data.ai_analytics.recent_questions.map((rq, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-slate-800 dark:text-slate-200">
+                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">&bull;</span>
+                        <span className="italic line-clamp-1 flex-1">"{rq.content}"</span>
+                        <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                          {new Date(rq.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <p className="text-sm text-slate-600 dark:text-slate-300">Loading metrics…</p>
@@ -421,9 +735,21 @@ function Player({ lecture }: { lecture: Lecture }) {
             </label>
 
             {progress && (
-              <p role="status" className="m-0 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-700 px-3 py-1 rounded-md">
-                {progress.completed ? 'Completed' : `${progress.progress_percent}% watched`}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p role="status" className="m-0 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-700 px-3 py-1 rounded-md">
+                  {progress.completed ? 'Completed' : `${progress.progress_percent}% watched`}
+                </p>
+                {progress.rewatch_count !== undefined && progress.rewatch_count > 0 && (
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-600">
+                    Rewatched {progress.rewatch_count}×
+                  </span>
+                )}
+                {progress.position_seconds > 0 && !progress.completed && (
+                  <span className="text-xs text-slate-600 dark:text-slate-300">
+                    Resumed from {formatSeconds(progress.position_seconds)}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -631,7 +957,7 @@ export function CourseWorkspace({ author = false }: { author?: boolean }) {
 
       {lecture && <Player key={lecture.id} lecture={lecture} />}
 
-      {author ? <><AnalyticsPanel courseId={current.id} /><CourseTutor courseId={current.id} reviewer /></> : <><CourseTutor courseId={current.id} /><FlashcardReview courseId={current.id} /><PersonalizationPanel courseId={current.id} /></>}
+      {author ? <><TopicManager courseId={current.id} /><AnalyticsPanel courseId={current.id} /><CourseTutor courseId={current.id} reviewer /></> : <><CourseTutor courseId={current.id} /><FlashcardReview courseId={current.id} /><PersonalizationPanel courseId={current.id} onSelectLecture={select} /></>}
 
       <Assignments courseId={current.id} author={author} />
 

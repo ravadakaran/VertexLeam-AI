@@ -13,6 +13,11 @@ erDiagram
   MODULES ||--o{ LECTURES : contains
   USERS ||--o{ ENROLLMENTS : enrolls
   COURSES ||--o{ ENROLLMENTS : receives
+  COURSES ||--o{ LEARNING_TOPICS : defines
+  LEARNING_TOPICS ||--o{ MASTERY_EVENTS : tracks
+  USERS ||--o{ MASTERY_EVENTS : demonstrates
+  USERS ||--o{ LEARNER_MASTERY : has
+  LEARNING_TOPICS ||--o{ LEARNER_MASTERY : summarizes
   ENROLLMENTS ||--o{ LECTURE_PROGRESS : records
   LECTURES ||--o{ LECTURE_PROGRESS : tracks
   USERS ||--o{ NOTES : owns
@@ -109,11 +114,11 @@ The diagram shows logical ownership and principal relationships. The field ledge
 |---|---|
 | Identity | Normalize login email, use encrypted email/full name and a unique keyed lookup digest, and preserve logical email uniqueness. Add refresh_sessions with token digest, family ID, rotation/expiry/revocation timestamps. Add deletion tombstone and role revision. |
 | Catalog | Add pricing_tier, rating aggregate, submitted_at and content revision. Approval binds submitted revision and commits status, course_approvals and audit. Add media_assets for quarantine, manifest, captions and versioned object keys. URL fields represent storage references or sanitized public thumbnails. |
-| Progress | Unique (enrollment_id, lecture_id), curriculum snapshot, required flags, durable playback event IDs and newest accepted playback session/sequence. Merge deduplicated valid coverage intervals and update course progress in the same transaction. Use composite scope checks to reject mismatched enrollment/course/lecture links. |
+| `Progress` | Unique (enrollment_id, lecture_id), curriculum snapshot, required flags, durable playback event IDs and newest accepted playback session/sequence. Merge deduplicated valid coverage intervals and update course progress in the same transaction. Migration 015 adds rewatch_count and last_watched_at timestamp tracking. Use composite scope checks to reject mismatched enrollment/course/lecture links. |
 | Assignments | Unique (assignment_id,user_id), pending scan asset and revision, server-clock acceptance. Add rubric_scores JSONB, grader and graded_at. Guard grade writes with revision. |
 | Quizzes | Add draft/approved/rejected/retired state, immutable revision identity, grade status, topic and difficulty, question points and short-answer rubric. Unique (attempt_id,question_id) and one in-progress attempt per learner/quiz. Lock attempt on submit. Add objective score, final score and answer grade fields. |
 | Awards | Unique certificate (user_id,course_id), status and deterministic object key. Badge uniqueness already exists. Add unique daily_activity (user_id,activity_date). |
-| AI | Add source/version metadata, chunk ordinal, start/end seconds, page/slide, source asset/name, embedding_model, active source pointer and message citations JSONB. Unique source/version/ordinal/model. Store transcript segments separately from the baseline text. Migration 013 adds token-only provider usage, learner-owned flashcards/review scheduling and persisted study plans. Add topic, lecture_topic, topic_mastery and applied_event ledger. Add recommendation topic and model epoch. |
+| AI and personalization | Add source/version metadata, chunk ordinal, start/end seconds, page/slide, source asset/name, embedding_model, active source pointer and message citations JSONB. Unique source/version/ordinal/model. Store transcript segments separately from the baseline text. Migration 013 adds token-only provider usage, learner-owned flashcards/review scheduling and persisted study plans. Migrations 010 and 014 implement course learning_topics, append-only mastery_events with evidence kind, and learner_mastery score/confidence/updated_at. Quiz topic IDs must reference the same course; tutor self-assessment is explicit and tied to a saved reply. Migration 016 implements learner_targeted_recommendations supporting multi-signal inputs (quiz_scores, topic_mastery, assignments, enrollment_history, ai_tutor_questions) and target types (course, module, lecture). |
 | Community | Add discussion_posts.parent_id with same-thread invariant, visibility and reports table with unique active reporter/post pair. Notification unique (event_id,user_id,channel), separate delivery state and provider reference. |
 | Operations | Add durable outbox, replay keys, activity and reporting facts. Add synthetic payment provenance, currency and fixture source. Audit append-only, with separate reader roles and sanitized metadata. |
 
@@ -123,4 +128,4 @@ Index foreign keys with B-trees, reusing a primary/unique leading key where suff
 
 Create the vector extension before the chunk table. Use text-embedding-3-small at 1536 dimensions and cosine distance. Start with exact retrieval within authorized active course material. Build the PRD IVFFlat cosine index after representative data exists. Compare filtered recall against exact search, tune probes/lists and use exact fallback if approximate recall is inadequate. Model changes stage a separate generation and matching index before atomic switch. [pgvector indexing and filtered searches](https://github.com/pgvector/pgvector).
 
-Apply ordered migrations for identity/catalog/enrollment, learning/assets, assessments/awards, AI/extensions, and community/governance/ops (`backend/src/db/migrations/001`–`012_community_ops_cache.sql`). Each migration is versioned and tested on empty and prior databases. Add, backfill and validate columns or constraints before enforcing them. Use a single deployment migration job with advisory lock. Keep staged changes backward-compatible for image rollback. See [operations](DEPLOYMENT_AND_OPERATIONS.md) and [security](SECURITY.md).
+Apply ordered migrations for identity/catalog/enrollment, learning/assets, assessments/awards, AI/personalization/extensions, community/governance/ops, video learning analytics, and recommendation engine (`backend/src/db/migrations/001`–`016_recommendation_engine.sql`). Each migration is versioned and tested on empty and prior databases. Add, backfill and validate columns or constraints before enforcing them. Use a single deployment migration job with advisory lock. Keep staged changes backward-compatible for image rollback. See [operations](DEPLOYMENT_AND_OPERATIONS.md) and [security](SECURITY.md).

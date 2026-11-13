@@ -12,7 +12,7 @@ As instructor upload playable lecture media and resources, publish a quiz and se
 
 ## D3 · AI tutor
 
-Ingest transcript, captions, PDF pages and slide text; inspect the active generation's source metadata. Ask supported questions in multiple persisted sessions, follow lecture/time/page citations, and repeat with another explanation mode. Ask an unsupported or cross-course question and show bounded fallback or access denial. Simulate provider outage, observe retryable tutor failure and demonstrate core playback/CRUD still work. Download a cited summary, save generated flashcards and review a due card. Generate a seven-day AI study plan from finalized quiz history and verify mastery priorities. As instructor generate a draft, inspect/edit and approve it. Confirm student sees the published assessment without keys. Record token totals without exposing prompt content.
+As instructor define course topics and map quiz questions to them. Ingest transcript, captions, PDF pages and slide text; inspect the active generation's source metadata. Ask supported questions in multiple persisted sessions, follow lecture/time/page citations, and repeat with another explanation mode. After a tutor answer, submit an explicit understood/still unsure check-in for a selected topic; verify the private score, confidence and update time change. Ask an unsupported or cross-course question and show bounded fallback or access denial. Simulate provider outage, observe retryable tutor failure and demonstrate core playback/CRUD still work. Download a cited summary, save generated flashcards and review a due card. Generate a seven-day AI study plan from finalized quiz history and verify mastery priorities. As instructor generate a draft, inspect/edit and approve it. Confirm student sees the published assessment without keys. Record token totals without exposing prompt content.
 
 ## D4 · Deployed governance and release
 
@@ -24,7 +24,7 @@ Use admin to approve and reject submitted courses, assign and revoke roles, susp
 |---|---|---|
 | D1 | First-slice role screens, API traces, persisted enrollment and decision audit | Planned |
 | D2 | Playback resume, annotation, file/grade, quiz and certificate workflow, negative access tests | Planned |
-| D3 | Retrieval and summary citations, module flashcards, private quiz draft review, mastery/study plan, provider outage and AI evaluation workbook/results | Planned |
+| D3 | Retrieval and summary citations, module flashcards, private quiz draft review, quiz/tutor mastery evidence with confidence, study plan, provider outage and AI evaluation workbook/results | Planned |
 | D4 | Admin approvals and role/suspension audit, platform metrics and synthetic revenue reconciliation, moderation decisions, CI status, staging smoke, accessibility/load and release/restore outputs | Planned |
 | L1 | Live cohort completion/streak analysis and 30-day core uptime | Requires observation |
 
@@ -69,6 +69,11 @@ Local results on 10 November 2026 added verified regression coverage against the
 - Static checks & browser suite: `npm run typecheck`, `npm run build`, and Playwright Chromium E2E (`npm run test:e2e`, 2/2 specs: `workspaces.spec.ts` and `learning.spec.ts`) passed.
 
 Live provider calls, transcription/document extraction, AI citation quality, hosted CI, cloud deployment, and manual visual/WCAG inspection remain unverified. Certificate issuance, outbound AI data processing, and account deletion remain disabled by default pending DEC-02, DEC-09, and DEC-14.
+
+Local Phase 2 results on 12 November 2026 using PostgreSQL/pgvector, Redis and mocked AI adapters:
+
+- **Mastery integration (`T-018`)**: The backend suite passed 17/17 checks. It verifies course-owned topic authoring, question-topic mapping and cross-course rejection, quiz-derived score replay, tutor self-assessment replay and immutable idempotency, enrolled learner topic reads, and score/confidence/update timestamp fields.
+- **Static and build checks**: `npm run typecheck`, `npm run build`, and `git diff --check` passed. The OpenAPI YAML parses successfully. Live provider scoring and classroom calibration remain unverified; mastery is low-impact study guidance under proposed [DEC-16](DECISIONS.md#decisions-and-open-issues).
 
 ## Operational and release verification
 

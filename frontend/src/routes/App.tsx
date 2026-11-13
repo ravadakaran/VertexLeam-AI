@@ -6,6 +6,7 @@ import { AuthForm } from '../pages/auth/AuthForm'
 import { Catalog, InstructorCourses, Learning } from '../pages/Learning'
 import { CourseWorkspace } from '../pages/CourseWorkspace'
 import { AdminPanel } from '../pages/AdminPanel'
+import { VerifyCertificate } from '../pages/VerifyCertificate'
 
 function Guard({ role }: { role: Role }) {
   const tokens = useSession(state => state.tokens)
@@ -59,6 +60,7 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<AuthForm key="login" />} />
         <Route path="/register" element={<AuthForm key="register" registering />} />
+        <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
         <Route
           path="/forbidden"
           element={

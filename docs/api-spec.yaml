@@ -1744,6 +1744,95 @@ paths:
           $ref: '#/components/responses/Error429'
         '503':
           $ref: '#/components/responses/Error503'
+  /ai/chat/sessions/{id}/messages/{requestId}/mastery:
+    post:
+      summary: Record a learner's explicit understanding of a tutor reply
+      operationId: post_ai_chat_tutor_mastery
+      x-prd: TASK-018
+      description: Student-only, session-owned, enrolled-course scoped and idempotent. The learner selects a course topic and marks understood or still unsure.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: requestId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Mastery score, confidence and update timestamp }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/Error404' }
+        '409': { $ref: '#/components/responses/Error409' }
+        '422': { $ref: '#/components/responses/Error422' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                topic_id: { type: string, format: uuid }
+                understood: { type: boolean }
+              required: [topic_id, understood]
+  /courses/{id}/topics:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    get:
+      summary: List topics for an owned or enrolled course
+      operationId: get_course_topics
+      x-prd: TASK-018
+      responses:
+        '200': { description: Course topics }
+        '403': { $ref: '#/components/responses/Error403' }
+    post:
+      summary: Create or update a course topic
+      operationId: post_course_topics
+      x-prd: TASK-018
+      responses:
+        '201': { description: Topic saved }
+        '403': { $ref: '#/components/responses/Error403' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                description: { type: string, maxLength: 2000 }
+              required: [name]
+  /modules/{id}/topics:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    get:
+      summary: List topics for quiz authoring in an owned module
+      operationId: get_module_topics
+      x-prd: TASK-018
+      responses:
+        '200': { description: Course topics available to quiz questions }
+        '403': { $ref: '#/components/responses/Error403' }
+  /users/me/mastery:
+    get:
+      summary: List mastery for enrolled topics
+      operationId: get_user_mastery
+      x-prd: TASK-018
+      parameters:
+      - name: course_id
+        in: query
+        required: false
+        schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Topic score, confidence, last update and mastery band }
+        '403': { $ref: '#/components/responses/Error403' }
   /ai/lectures/{id}/summarize:
     post:
       summary: Generate a lecture summary

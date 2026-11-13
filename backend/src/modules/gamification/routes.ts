@@ -1,4 +1,6 @@
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
+import QRCode from 'qrcode'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { db } from '../../db/index.ts'
 import type { PoolClient } from 'pg'
@@ -114,6 +116,41 @@ gamification.get('/certificates/:id/download', ...student, async(req,res)=>{
   res.set('Cache-Control','private, no-store').type('application/pdf').attachment('certificate.pdf').send(row.pdf)
 })
 
+// Phase 8: Public Certificate Verification Endpoint
+gamification.get('/certificates/:id/verify', async (req, res) => {
+  const certId = parse(uuid, req.params.id)
+  const { rows: [cert] } = await db.query(`
+    SELECT lc.id certificate_id, lc.issued_at, c.id course_id, c.title course_title, c.category, c.difficulty,
+      u.full_name recipient_name
+    FROM learner_certificates lc
+    JOIN courses c ON c.id = lc.course_id
+    JOIN users u ON u.id = lc.user_id
+    WHERE lc.id = $1
+  `, [certId])
+  if (!cert) throw new HttpError(404, 'NOT_FOUND', 'Certificate not found or unverified credential ID')
+  const origin = process.env.PUBLIC_APP_ORIGIN || 'http://127.0.0.1:5173'
+  res.set('Cache-Control', 'public, max-age=60').json({
+    valid: true,
+    certificate_id: cert.certificate_id,
+    recipient_name: cert.recipient_name,
+    course_id: cert.course_id,
+    course_title: cert.course_title,
+    category: cert.category,
+    difficulty: cert.difficulty,
+    issued_at: cert.issued_at,
+    issuer: 'VertexLearn AI Academic Credential Authority',
+    verification_url: `${origin}/verify/${cert.certificate_id}`
+  })
+})
+
+// Phase 8: Public Certificate PDF Download
+gamification.get('/certificates/:id/public-download', async (req, res) => {
+  const id = parse(uuid, req.params.id)
+  const { rows: [row] } = await db.query('SELECT pdf FROM learner_certificates WHERE id=$1', [id])
+  if (!row) throw new HttpError(404, 'NOT_FOUND', 'Certificate not found')
+  res.set('Cache-Control', 'public, max-age=3600').type('application/pdf').attachment('verified-certificate.pdf').send(row.pdf)
+})
+
 export async function refreshAwards(userId:string, courseId:string, client?:PoolClient){
   const sql=client??db
   await recordActivity(userId,sql)
@@ -124,11 +161,53 @@ export async function refreshAwards(userId:string, courseId:string, client?:Pool
   const {rows:[prior]}=await sql.query('SELECT id FROM learner_certificates WHERE user_id=$1 AND course_id=$2 FOR UPDATE',[userId,courseId])
   if(prior)return
   const {rows:[course]}=await sql.query('SELECT c.title,u.full_name FROM courses c JOIN users u ON u.id=$2 WHERE c.id=$1',[courseId,userId])
-  const pdf=await PDFDocument.create(),page=pdf.addPage([612,792]),font=await pdf.embedFont(StandardFonts.Helvetica)
-  page.drawText('Certificate of Completion',{x:100,y:570,size:30,font,color:rgb(.1,.25,.4)})
-  page.drawText(printable(String(course.title)),{x:80,y:500,size:20,font})
-  page.drawText('Awarded to '+printable(String(course.full_name)),{x:80,y:450,size:16,font})
-  await sql.query('INSERT INTO learner_certificates(user_id,course_id,pdf) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[userId,courseId,Buffer.from(await pdf.save())])
+
+  // Phase 8: Certificate generation with embedded QR code & unique verification URL
+  const certId = randomUUID()
+  const origin = process.env.PUBLIC_APP_ORIGIN || 'http://127.0.0.1:5173'
+  const verifyUrl = `${origin}/verify/${certId}`
+  const qrBuffer = await QRCode.toBuffer(verifyUrl, {
+    type: 'png',
+    width: 240,
+    margin: 1,
+    color: { dark: '#0f172a', light: '#ffffff' }
+  })
+
+  const pdf = await PDFDocument.create()
+  const page = pdf.addPage([792, 612]) // Standard landscape letter
+  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  const fontRegular = await pdf.embedFont(StandardFonts.Helvetica)
+  const fontOblique = await pdf.embedFont(StandardFonts.HelveticaOblique)
+  const qrImage = await pdf.embedPng(qrBuffer)
+
+  // Decorative border
+  page.drawRectangle({ x: 20, y: 20, width: 752, height: 572, borderColor: rgb(0.12, 0.22, 0.42), borderWidth: 3 })
+  page.drawRectangle({ x: 26, y: 26, width: 740, height: 560, borderColor: rgb(0.85, 0.65, 0.15), borderWidth: 1 })
+
+  // Header
+  page.drawText('VERTEXLEARN AI ACADEMIC CREDENTIAL', { x: 240, y: 535, size: 12, font: fontBold, color: rgb(0.35, 0.45, 0.55) })
+  page.drawText('Certificate of Completion', { x: 195, y: 485, size: 32, font: fontBold, color: rgb(0.08, 0.18, 0.36) })
+
+  // Recipient section
+  page.drawText('This verified credential is proud to certify that', { x: 265, y: 440, size: 12, font: fontOblique, color: rgb(0.4, 0.45, 0.5) })
+  page.drawText(printable(String(course.full_name)), { x: 80, y: 395, size: 26, font: fontBold, color: rgb(0.09, 0.15, 0.25) })
+
+  // Course section
+  page.drawText('has successfully completed all required curricula, modules, and mastery assessments for', { x: 80, y: 355, size: 12, font: fontRegular, color: rgb(0.35, 0.4, 0.45) })
+  page.drawText(printable(String(course.title)), { x: 80, y: 315, size: 20, font: fontBold, color: rgb(0.18, 0.35, 0.65) })
+
+  // Metadata & authority
+  const issueDate = new Date().toISOString().slice(0, 10)
+  page.drawText(`Credential ID: ${certId}`, { x: 80, y: 200, size: 9, font: fontRegular, color: rgb(0.3, 0.35, 0.4) })
+  page.drawText(`Issued On: ${issueDate}`, { x: 80, y: 185, size: 9, font: fontRegular, color: rgb(0.3, 0.35, 0.4) })
+  page.drawText(`Verification URL: ${verifyUrl}`, { x: 80, y: 170, size: 8, font: fontRegular, color: rgb(0.4, 0.45, 0.5) })
+  page.drawText('Verified by VertexLearn AI Academic Certification Authority', { x: 80, y: 140, size: 10, font: fontBold, color: rgb(0.1, 0.25, 0.45) })
+
+  // QR Code
+  page.drawImage(qrImage, { x: 610, y: 120, width: 100, height: 100 })
+  page.drawText('Scan to verify credential', { x: 605, y: 105, size: 8, font: fontRegular, color: rgb(0.4, 0.45, 0.5) })
+
+  await sql.query('INSERT INTO learner_certificates(id,user_id,course_id,pdf) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[certId,userId,courseId,Buffer.from(await pdf.save())])
 }
 
 export async function recordActivity(userId:string, sql:PoolClient|typeof db = db){

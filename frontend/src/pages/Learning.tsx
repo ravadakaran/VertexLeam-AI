@@ -6,6 +6,7 @@ import { useSession } from '../auth'
 type Enrollment = { id: string; course_id: string; course_title?: string; progress_percent: number }
 type Streak = { streak: number; last_active: string | null }
 type Award = { items: Array<{ id?: string; badge_key?: string; course_id?: string; issued_at?: string; awarded_at?: string }> }
+type MasteryItem = { topic_id: string; course_id: string; name: string; score: number; confidence: number; band: string; updated_at?: string }
 
 function DifficultyBadge({ difficulty }: { difficulty: string }) {
   const styles = {
@@ -161,6 +162,12 @@ export function Learning({ overview = false }: { overview?: boolean }) {
   const [streak, setStreak] = useState<Streak>()
   const [badges, setBadges] = useState<Award['items']>([])
   const [certificates, setCertificates] = useState<Award['items']>([])
+  const [mastery, setMastery] = useState<MasteryItem[]>([])
+  const [recs, setRecs] = useState<{
+    courses?: Array<{ course_id: string; title: string; reason: string }>
+    modules?: Array<{ module_id: string; course_id: string; course_title: string; title: string; reason: string }>
+    lectures?: Array<{ lecture_id: string; course_id: string; course_title: string; title: string; reason: string; progress_percent: number }>
+  }>()
   const tokens = useSession(state => state.tokens)
 
   useEffect(() => {
@@ -170,7 +177,9 @@ export function Learning({ overview = false }: { overview?: boolean }) {
       ? Promise.all([
           api<Streak>('/users/me/streak'),
           api<Award>('/users/me/badges'),
-          api<Award>('/users/me/certificates')
+          api<Award>('/users/me/certificates'),
+          api<{ items: MasteryItem[] }>('/users/me/mastery').catch(() => ({ items: [] })),
+          api<typeof recs>('/users/me/recommendations').catch(() => ({ courses: [], modules: [], lectures: [] }))
         ])
       : Promise.resolve(undefined)
 
@@ -181,10 +190,12 @@ export function Learning({ overview = false }: { overview?: boolean }) {
         title: row.course_title ?? row.course_id
       })))
       if (details) {
-        const [current, earned, issued] = details
+        const [current, earned, issued, masteryResult, recsResult] = details
         setStreak(current)
         setBadges(earned.items)
         setCertificates(issued.items)
+        setMastery(masteryResult.items)
+        if (recsResult) setRecs(recsResult)
       }
     }).catch(failure => {
       if (!cancelled) setError(String(failure))
@@ -256,24 +267,71 @@ export function Learning({ overview = false }: { overview?: boolean }) {
                       </div>
                       <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Verified Course Certificate</span>
                     </div>
-                    <button
-                      className="secondary text-xs font-semibold py-1.5 px-3"
-                      onClick={async () => {
-                        const response = await fetch('/api/v1/certificates/' + item.id + '/download', {
-                          headers: { Authorization: `Bearer ${tokens?.access_token}` }
-                        })
-                        if (!response.ok) { setError('Certificate download failed.'); return }
-                        const url = URL.createObjectURL(await response.blob()), anchor = document.createElement('a')
-                        anchor.href = url; anchor.download = 'certificate.pdf'; anchor.click(); URL.revokeObjectURL(url)
-                      }}
-                    >
-                      Download course certificate
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={'/verify/' + item.id}
+                        className="secondary text-xs font-semibold py-1.5 px-3 no-underline inline-flex items-center gap-1"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <svg className="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                        Verify
+                      </Link>
+                      <button
+                        className="secondary text-xs font-semibold py-1.5 px-3"
+                        onClick={async () => {
+                          const response = await fetch('/api/v1/certificates/' + item.id + '/download', {
+                            headers: { Authorization: `Bearer ${tokens?.access_token}` }
+                          })
+                          if (!response.ok) { setError('Certificate download failed.'); return }
+                          const url = URL.createObjectURL(await response.blob()), anchor = document.createElement('a')
+                          anchor.href = url; anchor.download = 'certificate.pdf'; anchor.click(); URL.revokeObjectURL(url)
+                        }}
+                      >
+                        Download PDF
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-slate-600 dark:text-slate-300 italic">Certificate issuance appears after the course completion policy is confirmed.</p>
+            )}
+          </div>
+
+          {/* Topic Mastery Dashboard */}
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider m-0">Topic Mastery</h3>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Adaptive skill profile</span>
+            </div>
+            {mastery.length ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {mastery.map(topic => (
+                  <div key={topic.topic_id} className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1.5">
+                        <span className="font-bold text-slate-900 dark:text-slate-100">{topic.name}</span>
+                        <span className={`font-semibold px-2 py-0.5 rounded text-[11px] ${topic.score >= 0.75 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : topic.score >= 0.4 ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300'}`}>
+                          {Math.round(topic.score * 100)}%
+                        </span>
+                      </div>
+                      <div role="progressbar" aria-label={`${topic.name} mastery`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(topic.score * 100)} className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${topic.score >= 0.75 ? 'bg-emerald-600' : topic.score >= 0.4 ? 'bg-indigo-600' : 'bg-amber-500'}`}
+                          style={{ width: `${Math.round(topic.score * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-2 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <span>Confidence: {Math.round(topic.confidence * 100)}%</span>
+                      <span>{topic.band}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600 dark:text-slate-300 italic">Topic mastery scores will appear as you complete quizzes and tutor check-ins.</p>
             )}
           </div>
         </section>

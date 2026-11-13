@@ -32,6 +32,11 @@ The [OpenAPI 3.0 contract](api-spec.yaml) contains all 40 documented §8 operati
 | POST | `/ai/chat/sessions` | 8.5 | tutor | 201 |
 | GET | `/ai/chat/sessions?course_id={id}` | TASK-015 | tutor | 200 |
 | POST | `/ai/chat/sessions/{id}/messages` | 8.5 | tutor | 200 |
+| POST | `/ai/chat/sessions/{id}/messages/{requestId}/mastery` | TASK-018 | enrolled student | 200 |
+| GET | `/users/me/mastery?course_id={id}` | TASK-018 | enrolled student | 200 |
+| GET | `/courses/{id}/topics` | TASK-018 | owner/admin or enrolled student | 200 |
+| POST | `/courses/{id}/topics` | TASK-018 | owner/admin | 201 |
+| GET | `/modules/{id}/topics` | TASK-018 | module owner/admin | 200 |
 | POST | `/ai/lectures/{id}/summarize` | 8.5 | enrolled | 200 |
 | POST | `/ai/lectures/{id}/generate-quiz` | 8.5 | owner | 202 |
 | POST | `/ai/modules/{id}/flashcards` | 8.5 | enrolled | 200 |
@@ -71,11 +76,13 @@ The [OpenAPI 3.0 contract](api-spec.yaml) contains all 40 documented §8 operati
 | PUT | `/attempts/{id}/grade` | Proposed | owner | 200 |
 | GET | `/users/me/certificates` | Proposed | student | 200 |
 | GET | `/certificates/{id}/download` | Proposed | self | 200 |
+| GET | `/certificates/{id}/verify` | Phase 8 | public | 200 |
+| GET | `/certificates/{id}/public-download` | Phase 8 | public | 200 |
 | GET | `/users/me/badges` | TASK-011 | student | 200 |
 | GET | `/users/me/streak` | TASK-011 | student | 200 |
 | GET | `/ai/jobs/{id}` | Proposed | owner | 200 |
 | GET | `/ai/chat/sessions/{id}/messages` | Proposed | tutor | 200 |
-| GET | `/instructor/courses/{id}/analytics` | Proposed | owner | 200 |
+| GET | `/instructor/courses/{id}/analytics` | TASK-012/Phase 4 | owner | 200 |
 | GET | `/admin/analytics/overview` | TASK-012 | admin | 200 |
 | POST | `/ai/lectures/{id}/ingest` | TASK-014 | owner | 202 |
 | POST | `/ai/jobs/{id}/publish` | TASK-014 | owner | 200 |
@@ -158,7 +165,7 @@ In the foundation, creating or editing a course submits that revision for admin 
 
 TASK-006 adds the instructor course list/detail and the browser enrollment walkthrough. The demo approval command calls the existing review policy. TASK-007 adds module and lecture authoring, optional WebVTT captions, and signed playback and resource links. The playback response includes a playback ID for heartbeat sequencing. The playlist, segments, captions and resource downloads validate the grant and current session and enrollment. See the [learning routes](../backend/src/modules/learning/routes.ts).
 
-TASK-008 adds progress, notes and bookmarks. Heartbeats merge valid ranges as a union and update resume by playback session and sequence. Lecture completion requires 100% unique coverage. A replayed event cannot add coverage. Annotations are private to their author. See the [progress service](../backend/src/modules/learning/progress.ts).
+TASK-008 adds progress, notes and bookmarks. Heartbeats merge valid ranges as a union and update resume by playback session and sequence. Lecture completion requires 100% unique coverage. Progress tracking records unique watch percentage, rewatch counts, drop-off position and last watched timestamp. A replayed event cannot add coverage. Annotations are private to their author. See the [progress service](../backend/src/modules/learning/progress.ts). Instructor analytics provides course-level and per-lecture video engagement, watch percentage, drop-off points, and rewatch metrics.
 
 TASK-009 adds assignment creation, private submission, rubric grading and signed download. TASK-010 adds quiz drafts, versioned review, learner attempts, objective scoring and short-answer review. The attempt list gives learners their own status and scores. It gives the owning instructor or admin the pending short-answer review queue. See the [assignment routes](../backend/src/modules/assignments/routes.ts), [quiz routes](../backend/src/modules/quizzes/routes.ts) and [integration checks](../backend/test/learning.test.js).
 
@@ -169,7 +176,7 @@ TASK-009 adds assignment creation, private submission, rubric grading and signed
 - Generated cards are saved to the learner's private deck. `GET /users/me/flashcards?course_id={uuid}` lists cards only for currently enrolled courses; `POST /users/me/flashcards/{id}/review` advances the card's due date by one day.
 - `POST /ai/lectures/{id}/ingest` combines owner-supplied transcript/notes with the lecture's validated PDF, PPTX and WebVTT assets, chunks the source while retaining page/slide/time metadata, embeds the generation and leaves a separate publish action.
 - `POST /ai/modules/{id}/quiz-draft` requires the course instructor or admin and an `Idempotency-Key`; it creates a private AI quiz draft with 5–10 evidence-checked questions. A retry returns the same draft. Existing `GET /quizzes/{id}/review` and `POST /quizzes/{id}/review` provide instructor review and approval.
-- `POST /courses/{id}/topics` is owner/admin scoped. `GET /users/me/mastery`, `/users/me/study-plan` and `/users/me/recommendations` are learner-private. Finalized quiz topic scores feed deterministic mastery replay; the study plan stores and returns a seven-day UTC schedule with daily time estimates.
+- `POST /courses/{id}/topics` and `GET /courses/{id}/topics` are owner/admin scoped for edits and reads; enrolled students may read topic names for tutor check-ins. `GET /modules/{id}/topics` returns only topics for an owned module. Quiz questions may map to a course topic, and mismatched course topics are rejected. `GET /users/me/mastery?course_id={id}` returns enrolled course topics with mastery, confidence, evidence timestamp and band; omit the filter to list topics across enrolled courses. Finalized quiz scores and explicit learner tutor check-ins feed deterministic mastery replay. Tutor check-ins are private, idempotent and tied to a saved response; they never infer understanding from chat text. The study plan stores and returns a seven-day UTC schedule with daily time estimates.
 - `GET /admin/courses/pending`, `GET /admin/users`, `PUT /admin/users/{id}/roles` and `POST /admin/users/{id}/suspend` require admin. Role and suspension changes revoke sessions and write audit rows.
 - `GET /admin/analytics/overview` reports DAU, enrollments, completion rate and synthetic payment revenue. `GET /admin/moderation/reports` and `POST /admin/moderation/reports/{id}/review` require admin.
 

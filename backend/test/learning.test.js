@@ -91,7 +91,7 @@ before(async () => {
   document.addPage()
   pdf = Buffer.from(await document.save())
   course = (await post('/courses', sessions.author, {
-    title: 'Synthetic learning ' + run, category: 'Testing', difficulty: 'beginner', price: 0, pricing_tier: 'free'
+    title: 'Test course ' + run, category: 'Testing', difficulty: 'beginner', price: 0, pricing_tier: 'free'
   }).expect(201)).body
   await post('/courses/' + course.id + '/modules', sessions.stranger, { title: 'Denied', order_index: 0 }).expect(404)
   const moduleKey = randomUUID()
@@ -200,6 +200,13 @@ test('T-008 reordered playback updates union coverage, preserve resume and keep 
   assert.equal(completed.body.watched_seconds, duration)
   assert.equal(completed.body.completed, true)
   assert.deepEqual((await post(prefix + '/progress', student, newest).expect(200)).body, completed.body)
+  const rewatchSession = (await get(prefix + '/playback', student).expect(200)).body
+  const rewatchEvent = {
+    sequence: 1, playback_id: rewatchSession.playback_id, position_seconds: 2,
+    event_id: randomUUID(), played_ranges: [{ start_seconds: 0, end_seconds: 2 }]
+  }
+  const rewatched = await post(prefix + '/progress', student, rewatchEvent).expect(200)
+  assert.equal(rewatched.body.rewatch_count, 1)
   await post(prefix + '/progress', student, { ...newest, position_seconds: 1 }).expect(409)
   await post(prefix + '/progress', student2, event(5, 0, duration)).expect(422)
   assert.equal((await get('/enrollments/me', student).expect(200)).body.items[0].progress_percent, 100)
@@ -303,6 +310,12 @@ test('T-011 awards and T-012 analytics are scoped, stable and owner-only', async
   assert.equal(certificates.length, 1)
   await get('/certificates/' + certificates[0].id + '/download', student2).expect(404)
   await get('/certificates/' + certificates[0].id + '/download', sessions.student).expect('Content-Type', /application\/pdf/).expect(200)
+  const verified = (await api.get(base + '/certificates/' + certificates[0].id + '/verify').expect(200)).body
+  assert.equal(verified.valid, true)
+  assert.equal(verified.certificate_id, certificates[0].id)
+  assert.ok(verified.verification_url)
+  await api.get(base + '/certificates/' + randomUUID() + '/verify').expect(404)
+  await api.get(base + '/certificates/' + certificates[0].id + '/public-download').expect('Content-Type', /application\/pdf/).expect(200)
   const badges = (await get(prefix + '/badges', sessions.student).expect(200)).body.items
   assert.ok(badges.some(item => item.badge_key === 'first_course'))
   for (let daysAgo = 0; daysAgo < 7; daysAgo++) await db.query(`INSERT INTO learner_activity(user_id,activity_date)
@@ -325,6 +338,15 @@ test('T-011 awards and T-012 analytics are scoped, stable and owner-only', async
   await get(prefix + '/streak', sessions.student).expect(200)
   const analytics = await get('/instructor/courses/' + course.id + '/analytics', sessions.author).expect(200)
   assert.equal(analytics.body.starts, 1)
+  assert.equal(analytics.body.rewatch_count, 1)
+  assert.ok(Array.isArray(analytics.body.lectures) && analytics.body.lectures.length >= 1)
+  assert.equal(analytics.body.lectures[0].rewatch_count, 1)
+  assert.ok(analytics.body.assessment_analytics)
+  assert.ok(Array.isArray(analytics.body.assessment_analytics.questions))
+  assert.ok(Array.isArray(analytics.body.assessment_analytics.most_incorrect))
+  assert.ok(analytics.body.ai_analytics)
+  assert.ok(Array.isArray(analytics.body.ai_analytics.frequent_topics))
+  assert.ok(Array.isArray(analytics.body.ai_analytics.recent_questions))
   await get('/instructor/courses/' + course.id + '/analytics', sessions.stranger).expect(404)
   await get('/instructor/courses/' + course.id + '/analytics', sessions.student).expect(403)
 })
@@ -360,8 +382,20 @@ test('T-016–020 grounded tools, mastery planning and governance APIs enforce s
     if(aiConfig.approved!==undefined)process.env.AI_OUTBOUND_DATA_APPROVED=aiConfig.approved
   }
   const topic=(await post('/courses/'+course.id+'/topics',sessions.author,{name:'Sorting fundamentals',description:'Ordering and complexity'}).expect(201)).body
+  assert.ok((await get('/courses/'+course.id+'/topics',sessions.student3).expect(200)).body.items.some(item=>item.id===topic.id))
+  assert.ok((await get('/modules/'+module.id+'/topics',sessions.author).expect(200)).body.items.some(item=>item.id===topic.id))
   let mastery=(await get('/users/me/mastery',sessions.student3).expect(200)).body.items
   assert.equal(mastery.find(item=>item.topic_id===topic.id).band,'intermediate')
+  const otherCourse=(await post('/courses',sessions.author,{title:'Unrelated topic course '+run,category:'Testing',difficulty:'beginner',price:0,pricing_tier:'free'}).expect(201)).body
+  const otherTopic=(await post('/courses/'+otherCourse.id+'/topics',sessions.author,{name:'Foreign topic'}).expect(201)).body
+  await post('/quizzes',sessions.author,{module_id:module.id,title:'Invalid topic mapping',questions:[
+    {question_type:'mcq',question_text:'Question mapped outside course?',max_points:1,topic_id:otherTopic.id,options:[
+      {option_text:'Yes',is_correct:true},{option_text:'No',is_correct:false}
+    ]}
+  ]}).expect(422)
+  const otherLearnerMastery=(await get('/users/me/mastery?course_id='+course.id,sessions.student2).expect(200)).body.items.find(item=>item.topic_id===topic.id)
+  assert.equal(otherLearnerMastery.score,0.5)
+  assert.equal(otherLearnerMastery.confidence,0)
   const draft=(await post('/quizzes',sessions.author,{module_id:module.id,title:'Topic mastery quiz',questions:[
     {question_type:'mcq',question_text:'Which operation orders values?',max_points:2,topic_id:topic.id,options:[
       {option_text:'Sorting',is_correct:true},{option_text:'Hashing',is_correct:false}
@@ -372,14 +406,22 @@ test('T-016–020 grounded tools, mastery planning and governance APIs enforce s
   await post('/attempts/'+attempt.id+'/submit',sessions.student3,{answers:[{question_id:attempt.questions[0].id,selected_option_ids:[attempt.questions[0].options[0].id]}]}).expect(200)
   mastery=(await get('/users/me/mastery',sessions.student3).expect(200)).body.items
   assert.equal(mastery.find(item=>item.topic_id===topic.id).score,0.6)
+  assert.equal(mastery.find(item=>item.topic_id===topic.id).confidence,0.2)
+  assert.ok(mastery.find(item=>item.topic_id===topic.id).updated_at)
   const plan=(await get('/users/me/study-plan',sessions.student3).expect(200)).body
   assert.equal(plan.steps[0].reason,'Prior finalized quiz performance indicates this priority')
   assert.equal(plan.days.length,7)
   assert.ok(plan.steps.every(step=>step.scheduled_for&&step.estimated_minutes>0))
   const candidate=(await post('/courses',sessions.author,{title:'Sorting project challenge '+run,description:'Practice sorting fundamentals',category:'Testing',difficulty:'intermediate',price:0,pricing_tier:'free'}).expect(201)).body
   await post('/courses/'+candidate.id+'/approve',sessions.admin,{decision:'approved'}).set('If-Match',candidate.revision).expect(200)
-  const suggestions=(await get('/users/me/recommendations',sessions.student3).expect(200)).body.items
+  const recsResponse=(await get('/users/me/recommendations',sessions.student3).expect(200)).body
+  const suggestions=recsResponse.items
   assert.equal(suggestions[0].course_id,candidate.id)
+  assert.ok(Array.isArray(recsResponse.courses))
+  assert.ok(Array.isArray(recsResponse.modules))
+  assert.ok(Array.isArray(recsResponse.lectures))
+  assert.ok(suggestions[0].reason)
+  assert.ok(suggestions[0].input_signal)
 
   const pending=(await post('/courses',sessions.author,{title:'Pending admin review '+run,category:'Testing',difficulty:'beginner',price:0,pricing_tier:'free'}).expect(201)).body
   const queue=(await get('/admin/courses/pending',sessions.admin).expect(200)).body.items
@@ -540,6 +582,7 @@ test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and
     assert.equal(reviewerReply.sources[0].lecture_id, lecture.id)
     assert.equal((await db.query('SELECT count(*)::int n FROM learner_activity WHERE user_id=$1', [sessions.author.user.id])).rows[0].n, 0)
 
+    const topic=(await post('/courses/'+course.id+'/topics',sessions.author,{name:'Tutor fundamentals'}).expect(201)).body
     const studentSession = (await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(201)).body
     const secondSession = (await post('/ai/chat/sessions', sessions.student, { course_id: course.id }).expect(201)).body
     assert.ok((await get('/ai/chat/sessions?course_id='+course.id,sessions.student).expect(200)).body.items.length>=2)
@@ -552,6 +595,14 @@ test('T-014–015 ingest/publish, owning instructor reviewer chat, isolation and
       message: 'How does partitioning work?',
       request_id: msgRequestId
     }).expect(200)).body
+    assert.equal(first.request_id,msgRequestId)
+    await post(`/ai/chat/sessions/${studentSession.id}/messages/${msgRequestId}/mastery`,sessions.student,{topic_id:topic.id,understood:true}).expect(200)
+    await post(`/ai/chat/sessions/${studentSession.id}/messages/${msgRequestId}/mastery`,sessions.student,{topic_id:topic.id,understood:true}).expect(200)
+    await post(`/ai/chat/sessions/${studentSession.id}/messages/${msgRequestId}/mastery`,sessions.student,{topic_id:topic.id,understood:false}).expect(409)
+    await post(`/ai/chat/sessions/${studentSession.id}/messages/${msgRequestId}/mastery`,sessions.student2,{topic_id:topic.id,understood:true}).expect(404)
+    const tutorMastery=(await get('/users/me/mastery?course_id='+course.id,sessions.student).expect(200)).body.items.find((item)=>item.topic_id===topic.id)
+    assert.equal(tutorMastery.score,0.6)
+    assert.equal(tutorMastery.confidence,0.2)
     const replaySame = (await post('/ai/chat/sessions/' + studentSession.id + '/messages', sessions.student, {
       message: 'How does partitioning work?',
       request_id: msgRequestId

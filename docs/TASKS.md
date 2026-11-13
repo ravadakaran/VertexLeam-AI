@@ -160,9 +160,9 @@ AI quiz review · Day 19 · P0/P1
 Modes, mastery, study plan, recommendations and buffer · Day 20–21 · P1
 
 - Depends on [TASK-010](TASKS.md#task-010), [TASK-015](TASKS.md#task-015).
-- Implementation [mastery and personalization APIs](../backend/src/modules/personalization/routes.ts), [quiz evidence updates](../backend/src/modules/quizzes/routes.ts), [schema](../backend/src/db/migrations/010_personalization_admin.sql) and [student UI](../frontend/src/pages/CourseWorkspace.tsx).
+- Implementation [mastery and personalization APIs](../backend/src/modules/personalization/routes.ts), [quiz topic validation and evidence updates](../backend/src/modules/quizzes/routes.ts), [tutor self-assessment evidence](../backend/src/modules/ai/routes.ts), [schema](../backend/src/db/migrations/010_personalization_admin.sql), [follow-up evidence migration](../backend/src/db/migrations/014_mastery_evidence.sql), [recommendation engine migration](../backend/src/db/migrations/016_recommendation_engine.sql), [instructor/learner UI](../frontend/src/pages/CourseWorkspace.tsx) and [student workspace](../frontend/src/pages/Learning.tsx).
 - Requirements FR-S10, FR-A4, FR-A6, FR-A8, SCOPE-MODES, SCOPE-RECS, JOB-RECOMMEND, PLAN-W3.
-- Acceptance. Deterministic event replay yields expected mastery band, approved recommendations and history-based daily study steps.
+- Acceptance. Course-owned topics map to quiz questions; finalized quiz results and explicit learner tutor check-ins replay deterministically into mastery score, confidence and updated_at. Learners see a course-scoped mastery dashboard, and study plans prioritize weaker topics. Phase 3 recommendation engine ingests 5 signals (quizzes, mastery, assignments, enrollments, AI tutor) to output targeted lecture resumes, module gap remediations, and catalog course suggestions.
 
 ## TASK-019
 

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db, transaction } from '../../db/index.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
 import { HttpError, parse, uuid } from '../../http.ts'
-import { courseScope } from '../learning/scope.ts'
+import { courseScope, moduleScope } from '../learning/scope.ts'
 
 export const personalization = Router()
 const student = [authenticate, requireRole('student')]
@@ -26,6 +26,21 @@ personalization.post('/courses/:id/topics', ...author, async (req, res) => {
   await courseScope(db,req.user!,courseId,'author')
   const {rows:[topic]}=await db.query('INSERT INTO learning_topics(course_id,name,description) VALUES($1,$2,$3) ON CONFLICT(course_id,name) DO UPDATE SET description=EXCLUDED.description RETURNING *',[courseId,body.name,body.description])
   res.status(201).json(topic)
+})
+
+personalization.get('/courses/:id/topics',authenticate,requireRole('student','instructor','admin'),async (req,res)=>{
+  const courseId=parse(uuid,req.params.id)
+  await courseScope(db,req.user!,courseId,req.user!.roles.includes('student')?'learner':'author')
+  const {rows}=await db.query('SELECT id,name,description FROM learning_topics WHERE course_id=$1 ORDER BY name,id',[courseId])
+  res.set('Cache-Control','private, no-store').json({items:rows})
+})
+
+personalization.get('/modules/:id/topics', ...author, async (req,res)=>{
+  const moduleId=parse(uuid,req.params.id)
+  await moduleScope(db,req.user!,moduleId,'author')
+  const {rows}=await db.query(`SELECT t.id,t.name,t.description FROM learning_topics t JOIN modules m ON m.course_id=t.course_id
+    WHERE m.id=$1 ORDER BY t.name,t.id`,[moduleId])
+  res.set('Cache-Control','private, no-store').json({items:rows})
 })
 
 personalization.get('/users/me/mastery', ...student, async (req,res)=>{
@@ -81,27 +96,133 @@ personalization.get('/users/me/study-plan', ...student, async (req,res)=>{
 
 personalization.get('/users/me/recommendations', ...student, async (req,res)=>{
   const result=await transaction(async client=>{
-    const {rows}=await client.query(`SELECT c.id,c.title,c.description,c.category,
+    // Signal 1: Topic mastery & weak topics (< 0.75)
+    const {rows:weakTopics}=await client.query(`SELECT t.id topic_id,t.course_id,t.name,coalesce(m.score,0.5)::float score,
+      coalesce(m.confidence,0)::float confidence FROM learning_topics t
+      JOIN learner_mastery m ON m.topic_id=t.id WHERE m.user_id=$1 AND m.score<0.75 ORDER BY m.score ASC,t.name`,[req.user!.id])
+
+    // Signal 2: Weak quiz attempts (< 75%)
+    const {rows:weakQuizzes}=await client.query(`SELECT q.id quiz_id,q.module_id,m.course_id,m.title module_title,c.title course_title,a.score
+      FROM quiz_attempts a JOIN quizzes q ON q.id=a.quiz_id JOIN modules m ON m.id=q.module_id JOIN courses c ON c.id=m.course_id
+      WHERE a.user_id=$1 AND a.status='graded' AND a.score<75 ORDER BY a.started_at DESC LIMIT 10`,[req.user!.id])
+
+    // Signal 3: Assignment performance
+    const {rows:weakAssignments}=await client.query(`SELECT a.id assignment_id,a.course_id,c.title course_title,a.title,s.grade
+      FROM assignment_submissions s JOIN assignments a ON a.id=s.assignment_id JOIN courses c ON c.id=a.course_id
+      WHERE s.user_id=$1 AND s.grade IS NOT NULL AND s.grade<70 ORDER BY s.submitted_at DESC LIMIT 10`,[req.user!.id])
+
+    // Signal 4: Enrollment history & curriculum progress
+    const {rows:enrolledCurriculum}=await client.query(`SELECT e.course_id,c.title course_title,e.progress_percent,
+        m.id module_id,m.title module_title,m.order_index module_order,
+        l.id lecture_id,l.title lecture_title,l.duration_seconds,l.order_index lecture_order,
+        coalesce(p.position_seconds,0)::int position_seconds,
+        coalesce((SELECT sum(upper(r)-lower(r))::int FROM unnest(p.coverage) AS r),0)::int watched_seconds,
+        coalesce(p.rewatch_count,0)::int rewatch_count
+      FROM enrollments e JOIN courses c ON c.id=e.course_id JOIN modules m ON m.course_id=c.id JOIN lectures l ON l.module_id=m.id
+      LEFT JOIN lecture_progress p ON p.enrollment_id=e.id AND p.lecture_id=l.id
+      WHERE e.user_id=$1 AND l.duration_seconds>0 ORDER BY c.title,m.order_index,l.order_index`,[req.user!.id])
+
+    // Signal 5: AI tutor user questions
+    const {rows:tutorQueries}=await client.query(`SELECT m.content,s.course_id FROM ai_chat_messages m
+      JOIN ai_chat_sessions s ON s.id=m.session_id WHERE s.user_id=$1 AND m.role='user' ORDER BY m.created_at DESC LIMIT 20`,[req.user!.id])
+
+    // Combined profile of learner interest and weak concepts
+    const profileWords=[
+      ...weakTopics.flatMap((t:any)=>words(t.name)),
+      ...weakQuizzes.flatMap((q:any)=>words(q.module_title)),
+      ...tutorQueries.flatMap((tq:any)=>words(tq.content)),
+      ...weakAssignments.flatMap((a:any)=>words(a.title))
+    ]
+
+    // Output 1: Suggested courses
+    const {rows:candidates}=await client.query(`SELECT c.id,c.title,c.description,c.category,
       coalesce(avg(m.score),0.5)::float mastery,count(m.topic_id)::int evidence
       FROM courses c LEFT JOIN learning_topics t ON t.course_id=c.id LEFT JOIN learner_mastery m ON m.topic_id=t.id AND m.user_id=$1
       WHERE c.status='approved' AND NOT EXISTS(SELECT 1 FROM enrollments e WHERE e.course_id=c.id AND e.user_id=$1)
       GROUP BY c.id ORDER BY c.created_at DESC LIMIT 100`,[req.user!.id])
-    const interest=await client.query(`SELECT t.name FROM learning_topics t JOIN learner_mastery m ON m.topic_id=t.id
-      WHERE m.user_id=$1 AND m.score<0.75 ORDER BY t.name`,[req.user!.id])
-    const profile=interest.rows.flatMap((row:any)=>words(row.name))
-    const ranked=rows.map((c:any)=>{
-      const candidate=words(c.title+' '+(c.description??'')+' '+c.category)
-      const similarity=cosine(profile,candidate)
+
+    const rankedCourses=candidates.map((c:any)=>{
+      const candidateWords=words(c.title+' '+(c.description??'')+' '+c.category)
+      const similarity=cosine(profileWords,candidateWords)
       const rule=c.evidence?1-Math.min(1,c.mastery):0.5
       const score=Math.round((0.6*rule+0.4*similarity)*100000)/100000
-      const reason=c.evidence?'Prioritize a related course to strengthen lower-mastery topics':'Explore an approved course based on the available catalog'
-      return {course_id:c.id,title:c.title,score,reason}
+      let reason='Explore an approved course based on the available catalog'
+      let inputSignal='topic_mastery'
+      const matchedWeakTopic=weakTopics.find((t:any)=>candidateWords.some(w=>words(t.name).includes(w)))
+      const matchedTutor=tutorQueries.find((tq:any)=>candidateWords.some(w=>words(tq.content).includes(w)))
+      const matchedQuiz=weakQuizzes.find((q:any)=>candidateWords.some(w=>words(q.module_title).includes(w)))
+      if(matchedWeakTopic){reason=`Weak in ${matchedWeakTopic.name} (${Math.round(matchedWeakTopic.score*100)}%) — Recommend ${c.title}`;inputSignal='topic_mastery'}
+      else if(matchedQuiz){reason=`Low quiz score in ${matchedQuiz.module_title} — Recommend ${c.title}`;inputSignal='quiz_scores'}
+      else if(matchedTutor){reason=`Based on your AI tutor queries — Recommend ${c.title}`;inputSignal='ai_tutor_questions'}
+      else if(c.evidence){reason='Prioritize a related course to strengthen lower-mastery topics';inputSignal='topic_mastery'}
+      return {course_id:c.id,title:c.title,score,reason,input_signal:inputSignal}
     }).sort((a:any,b:any)=>b.score-a.score||a.course_id.localeCompare(b.course_id)).slice(0,10)
+
+    // Output 2: Suggested modules
+    const moduleRecs:Array<{module_id:string;course_id:string;course_title:string;title:string;score:number;reason:string;input_signal:string}>=[]
+    for(const q of weakQuizzes){
+      if(!moduleRecs.some(r=>r.module_id===q.module_id)){
+        moduleRecs.push({module_id:q.module_id,course_id:q.course_id,course_title:q.course_title,title:q.module_title,score:0.92,
+          reason:`Low quiz score (${q.score}%) — Recommend reviewing ${q.module_title}`,input_signal:'quiz_scores'})
+      }
+    }
+    for(const t of weakTopics){
+      const matchingLec=enrolledCurriculum.find((lec:any)=>words(lec.module_title+' '+lec.lecture_title).some(w=>words(t.name).includes(w)))
+      if(matchingLec&&!moduleRecs.some(r=>r.module_id===matchingLec.module_id)){
+        moduleRecs.push({module_id:matchingLec.module_id,course_id:matchingLec.course_id,course_title:matchingLec.course_title,title:matchingLec.module_title,
+          score:Math.round((1-t.score)*100000)/100000,reason:`Weak in ${t.name} (mastery ${Math.round(t.score*100)}%) — Recommend ${matchingLec.module_title}`,input_signal:'topic_mastery'})
+      }
+    }
+    for(const tq of tutorQueries){
+      const qWords=words(tq.content)
+      const matchingLec=enrolledCurriculum.find((lec:any)=>words(lec.module_title).some(w=>qWords.includes(w)))
+      if(matchingLec&&!moduleRecs.some(r=>r.module_id===matchingLec.module_id)){
+        moduleRecs.push({module_id:matchingLec.module_id,course_id:matchingLec.course_id,course_title:matchingLec.course_title,title:matchingLec.module_title,
+          score:0.78,reason:`Based on your AI tutor queries — Recommend practicing ${matchingLec.module_title}`,input_signal:'ai_tutor_questions'})
+      }
+    }
+
+    // Output 3: Suggested lectures
+    const lectureRecs:Array<{lecture_id:string;module_id:string;course_id:string;course_title:string;title:string;duration_seconds:number;progress_percent:number;dropoff_seconds:number;score:number;reason:string;input_signal:string}>=[]
+    // Drop-off resume
+    for(const l of enrolledCurriculum){
+      if(l.position_seconds>0&&l.watched_seconds<l.duration_seconds){
+        lectureRecs.push({lecture_id:l.lecture_id,module_id:l.module_id,course_id:l.course_id,course_title:l.course_title,title:l.lecture_title,duration_seconds:l.duration_seconds,
+          progress_percent:Math.round(l.watched_seconds*100/l.duration_seconds),dropoff_seconds:l.position_seconds,score:0.95,
+          reason:`Resume playback: ${Math.round(l.watched_seconds*100/l.duration_seconds)}% watched (paused at ${Math.floor(l.position_seconds/60)}:${(l.position_seconds%60).toString().padStart(2,'0')})`,
+          input_signal:'enrollment_history'})
+      }
+    }
+    // Next unwatched lecture
+    for(const l of enrolledCurriculum){
+      if(l.watched_seconds===0&&!lectureRecs.some(r=>r.lecture_id===l.lecture_id)){
+        lectureRecs.push({lecture_id:l.lecture_id,module_id:l.module_id,course_id:l.course_id,course_title:l.course_title,title:l.lecture_title,duration_seconds:l.duration_seconds,
+          progress_percent:0,dropoff_seconds:0,score:0.80,reason:`Next lecture up in ${l.course_title}`,input_signal:'enrollment_history'})
+        if(lectureRecs.length>=6)break
+      }
+    }
+
+    // Persist into database tables
     await client.query('DELETE FROM learner_recommendations WHERE user_id=$1',[req.user!.id])
-    for(let i=0;i<ranked.length;i++)await client.query('INSERT INTO learner_recommendations(user_id,course_id,rank,score,reason) VALUES($1,$2,$3,$4,$5)',[req.user!.id,ranked[i].course_id,i+1,ranked[i].score,ranked[i].reason])
-    return ranked
+    for(let i=0;i<rankedCourses.length;i++)await client.query('INSERT INTO learner_recommendations(user_id,course_id,rank,score,reason) VALUES($1,$2,$3,$4,$5)',[req.user!.id,rankedCourses[i].course_id,i+1,rankedCourses[i].score,rankedCourses[i].reason])
+
+    await client.query('DELETE FROM learner_targeted_recommendations WHERE user_id=$1',[req.user!.id])
+    for(const c of rankedCourses){
+      await client.query(`INSERT INTO learner_targeted_recommendations(user_id,target_type,course_id,title,score,reason,input_signal)
+        VALUES($1,'course',$2,$3,$4,$5,$6)`,[req.user!.id,c.course_id,c.title,c.score,c.reason,c.input_signal])
+    }
+    for(const m of moduleRecs.slice(0,6)){
+      await client.query(`INSERT INTO learner_targeted_recommendations(user_id,target_type,course_id,module_id,title,score,reason,input_signal)
+        VALUES($1,'module',$2,$3,$4,$5,$6,$7)`,[req.user!.id,m.course_id,m.module_id,m.title,m.score,m.reason,m.input_signal])
+    }
+    for(const l of lectureRecs.slice(0,6)){
+      await client.query(`INSERT INTO learner_targeted_recommendations(user_id,target_type,course_id,module_id,lecture_id,title,score,reason,input_signal)
+        VALUES($1,'lecture',$2,$3,$4,$5,$6,$7,$8)`,[req.user!.id,l.course_id,l.module_id,l.lecture_id,l.title,l.score,l.reason,l.input_signal])
+    }
+
+    return {items:rankedCourses,courses:rankedCourses,modules:moduleRecs.slice(0,6),lectures:lectureRecs.slice(0,6)}
   })
-  res.set('Cache-Control','private, no-store').json({items:result})
+  res.set('Cache-Control','private, no-store').json(result)
 })
 
 export async function recordMasteryEvidence(client:any,userId:string,topicId:string,evidenceId:string,score:number,evidenceKind:'quiz'|'tutor_self_assessment'){

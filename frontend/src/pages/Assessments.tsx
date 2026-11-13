@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, json, type Page } from '../api'
 import { ActionForm, localUrl, requestKey, useData } from './feature-ui'
 
@@ -203,6 +203,7 @@ export function Assignments({ courseId, author }: { courseId: string; author: bo
 type QuestionType = 'mcq' | 'multi_select' | 'short_answer'
 type DraftQuestion = {
   question_text: string; question_type: QuestionType; max_points: number; rubric?: string;
+  topic_id?: string;
   options?: Array<{ option_text: string; is_correct: boolean }>
 }
 type Question = Omit<DraftQuestion, 'options' | 'rubric'> & { id: string; options?: Array<{ id: string; option_text: string }> }
@@ -214,6 +215,8 @@ type Attempt = {
 }
 
 function QuizEditor({ moduleId, onSaved }: { moduleId: string; onSaved: () => void }) {
+  const topics=useData<{items:Array<{id:string;name:string}>}>('/modules/'+moduleId+'/topics')
+  useEffect(()=>{const refresh=()=>topics.refresh();window.addEventListener('topics-updated',refresh);return()=>window.removeEventListener('topics-updated',refresh)},[moduleId])
   const [type, setType] = useState<QuestionType>('mcq')
   const [questions, setQuestions] = useState<DraftQuestion[]>([])
   const [optionCount, setOptionCount] = useState(2)
@@ -235,6 +238,7 @@ function QuizEditor({ moduleId, onSaved }: { moduleId: string; onSaved: () => vo
             question_text: String(data.get('question')),
             question_type: type,
             max_points: Number(data.get('points')),
+            ...(data.get('topic_id')&&{topic_id:String(data.get('topic_id'))}),
             ...(options && { options }),
             ...(type === 'short_answer' && { rubric: String(data.get('rubric')) })
           }])
@@ -252,6 +256,7 @@ function QuizEditor({ moduleId, onSaved }: { moduleId: string; onSaved: () => vo
               Question
               <textarea name="question" required rows={2} placeholder="Enter problem statement…" className="mt-1" />
             </label>
+            <label className="font-semibold text-slate-700 dark:text-slate-200">Learning topic<select name="topic_id" defaultValue="" className="mt-1"><option value="">No topic mapping</option>{topics.data?.items.map(topic=><option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></label>
             <label className="font-semibold text-slate-700 dark:text-slate-200">
               Maximum points
               <input name="points" type="number" min=".01" max="10000" step=".01" required placeholder="10" className="mt-1" />
@@ -300,7 +305,7 @@ function QuizEditor({ moduleId, onSaved }: { moduleId: string; onSaved: () => vo
               {questions.map((item, index) => (
                 <li key={index} className="p-2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                   <div className="flex items-center justify-between">
-                    <span>{item.question_text} ({item.max_points} pts)</span>
+                    <span>{item.question_text} ({item.max_points} pts){item.topic_id&&<small className="block text-slate-600 dark:text-slate-300">Mapped to {topics.data?.items.find(topic=>topic.id===item.topic_id)?.name??'topic'}</small>}</span>
                     <button
                       type="button"
                       className="secondary text-[11px] py-0.5 px-2 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950"
