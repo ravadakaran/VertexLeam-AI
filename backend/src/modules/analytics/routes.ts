@@ -77,6 +77,7 @@ analytics.get('/instructor/courses/:id/analytics',...owner,async(req,res)=>{
       JOIN quizzes q ON q.id = a.quiz_id
       JOIN modules m ON m.id = q.module_id
       WHERE m.course_id = $1 AND a.status = 'graded' AND a.points IS NOT NULL
+        AND a.graded_at >= $2 AND a.graded_at < $3
     )
     SELECT 
       uq.quiz_id,
@@ -119,17 +120,17 @@ analytics.get('/instructor/courses/:id/analytics',...owner,async(req,res)=>{
     SELECT s.id session_id, s.user_id, count(m.id)::int message_count
     FROM ai_chat_sessions s
     LEFT JOIN ai_chat_messages m ON m.session_id = s.id
-    WHERE s.course_id = $1
+    WHERE s.course_id = $1 AND s.created_at >= $2 AND s.created_at < $3
     GROUP BY s.id, s.user_id
-  `, [id])
+  `, [id, from, to])
 
   const { rows: tutorQueries } = await db.query(`
     SELECT m.content, m.created_at
     FROM ai_chat_messages m
     JOIN ai_chat_sessions s ON s.id = m.session_id
-    WHERE s.course_id = $1 AND m.role = 'user'
+    WHERE s.course_id = $1 AND m.role = 'user' AND m.created_at >= $2 AND m.created_at < $3
     ORDER BY m.created_at DESC LIMIT 50
-  `, [id])
+  `, [id, from, to])
 
   const { rows: courseTopics } = await db.query(`
     SELECT id, name FROM learning_topics WHERE course_id = $1 ORDER BY name
@@ -202,7 +203,38 @@ analytics.get('/admin/analytics/overview',authenticate,requireRole('admin'),asyn
   `,[from,to])
   const { rows: [revenue] } = await db.query(`SELECT coalesce(sum(amount),0)::numeric(12,2) amount,
     coalesce(min(currency),'INR') currency,count(DISTINCT currency)::int currencies
-    FROM synthetic_payments WHERE status='succeeded' AND created_at >= $1 AND created_at <= $2`, [from,to])
-  res.set('Cache-Control','private, no-store').json({...row,completion_rate:row.cohort?Math.round(10000*row.completed/row.cohort)/100:null,
-    revenue:{amount:revenue.currencies <= 1 ? Number(revenue.amount) : null,currency:revenue.currencies <= 1 ? revenue.currency : 'mixed',provenance:'synthetic payments'}})
+    FROM synthetic_payments WHERE status='succeeded' AND created_at >= $1 AND created_at < $2`, [from,to])
+  const { rows: [aiUsage] } = await db.query(`SELECT count(*)::int requests,
+    coalesce(sum(input_tokens),0)::bigint input_tokens,
+    coalesce(sum(output_tokens),0)::bigint output_tokens,
+    coalesce(sum(input_tokens + output_tokens),0)::bigint total_tokens
+    FROM ai_provider_usage WHERE recorded_at >= $1 AND recorded_at < $2`, [from,to])
+  const { rows: [platform] } = await db.query(`SELECT
+    (SELECT count(*)::int FROM users WHERE deleted_at IS NULL) total_users,
+    (SELECT count(*)::int FROM users WHERE is_active=true AND deleted_at IS NULL) active_users,
+    (SELECT count(*)::int FROM users WHERE is_active=false AND deleted_at IS NULL) suspended_users,
+    (SELECT count(*)::int FROM courses WHERE status='approved') approved_courses,
+    (SELECT count(*)::int FROM courses WHERE status='pending') pending_courses,
+    (SELECT count(*)::int FROM moderation_reports WHERE status='pending') pending_reports,
+    (SELECT count(*)::int FROM discussion_posts WHERE is_flagged=true OR visibility='hidden') flagged_posts`)
+  res.set('Cache-Control','private, no-store').json({
+    ...row,
+    completion_rate:row.cohort?Math.round(10000*row.completed/row.cohort)/100:null,
+    revenue:{amount:revenue.currencies <= 1 ? Number(revenue.amount) : null,currency:revenue.currencies <= 1 ? revenue.currency : 'mixed',provenance:'synthetic payments'},
+    ai_usage:{
+      requests: Number(aiUsage?.requests ?? 0),
+      input_tokens: Number(aiUsage?.input_tokens ?? 0),
+      output_tokens: Number(aiUsage?.output_tokens ?? 0),
+      total_tokens: Number(aiUsage?.total_tokens ?? 0)
+    },
+    platform_overview:{
+      total_users: Number(platform.total_users),
+      active_users: Number(platform.active_users),
+      suspended_users: Number(platform.suspended_users),
+      approved_courses: Number(platform.approved_courses),
+      pending_courses: Number(platform.pending_courses),
+      pending_reports: Number(platform.pending_reports),
+      flagged_posts: Number(platform.flagged_posts)
+    }
+  })
 })

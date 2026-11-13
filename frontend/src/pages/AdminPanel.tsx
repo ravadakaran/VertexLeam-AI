@@ -45,6 +45,21 @@ type MetricsData = {
     amount: number | null
     provenance: string
   }
+  ai_usage?: {
+    requests: number
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  }
+  platform_overview?: {
+    total_users: number
+    active_users: number
+    suspended_users: number
+    approved_courses: number
+    pending_courses: number
+    pending_reports: number
+    flagged_posts: number
+  }
 }
 
 function UsersSection() {
@@ -360,38 +375,133 @@ function MetricsSection() {
   const metrics = useData<MetricsData>('/admin/analytics/overview')
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-8">
       <div className="border-b border-slate-200 dark:border-slate-700 pb-4">
         <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">Platform metrics</h1>
-        <p className="text-slate-600 dark:text-slate-300 text-sm">Aggregated telemetry, engagement, completion rates, and platform revenue.</p>
+        <p className="text-slate-600 dark:text-slate-300 text-sm">Aggregated telemetry, engagement, completion rates, AI provider usage, and platform revenue.</p>
       </div>
 
       {metrics.error && <p role="alert">{metrics.error}</p>}
 
       {metrics.data && (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {[
-            ['Daily active learners', metrics.data.dau, 'Learners active today'],
-            ['Enrollments', metrics.data.enrollments, 'Total enrolled student seats'],
-            [
-              'Completion rate',
-              metrics.data.completion_rate == null ? '—' : metrics.data.completion_rate + '%',
-              'Course curriculum completion'
-            ],
-            [
-              'Revenue',
-              metrics.data.revenue.amount === null
-                ? `Mixed currencies · ${metrics.data.revenue.provenance}`
-                : `${metrics.data.revenue.currency} ${metrics.data.revenue.amount} · ${metrics.data.revenue.provenance}`,
-              'Platform earnings ledger'
-            ]
-          ].map(([label, value, description]) => (
-            <article key={String(label)} className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
-              <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">{label}</p>
-              <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">{value}</strong>
-              <span className="text-xs text-slate-600 dark:text-slate-300">{description}</span>
-            </article>
-          ))}
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-3">Core Telemetry & Revenue</h2>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                ['Daily active learners', metrics.data.dau, 'Learners active today'],
+                ['Enrollments', metrics.data.enrollments, 'Total enrolled student seats'],
+                [
+                  'Completion rate',
+                  metrics.data.completion_rate == null ? '—' : metrics.data.completion_rate + '%',
+                  'Course curriculum completion'
+                ],
+                [
+                  'Revenue',
+                  metrics.data.revenue.amount === null
+                    ? `Mixed currencies · ${metrics.data.revenue.provenance}`
+                    : `${metrics.data.revenue.currency} ${metrics.data.revenue.amount} · ${metrics.data.revenue.provenance}`,
+                  'Platform earnings ledger'
+                ]
+              ].map(([label, value, description]) => (
+                <article key={String(label)} className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">{label}</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">{value}</strong>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">{description}</span>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          {metrics.data.platform_overview && (
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-3">Platform Catalog & Community Overview</h2>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">User Governance</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.platform_overview.total_users} Users
+                  </strong>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2 mt-2">
+                    <span className="inline-flex items-center text-emerald-700 dark:text-emerald-400 font-semibold">
+                      ● {metrics.data.platform_overview.active_users} active
+                    </span>
+                    <span>·</span>
+                    <span className="inline-flex items-center text-rose-700 dark:text-rose-400 font-semibold">
+                      ● {metrics.data.platform_overview.suspended_users} suspended
+                    </span>
+                  </div>
+                </article>
+
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">Course Catalog</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.platform_overview.approved_courses} Courses
+                  </strong>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 mt-2">
+                    {metrics.data.platform_overview.pending_courses > 0 ? (
+                      <span className="text-amber-800 dark:text-amber-300 font-semibold">
+                        ⏳ {metrics.data.platform_overview.pending_courses} pending approval
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 dark:text-slate-400">All courses reviewed</span>
+                    )}
+                  </div>
+                </article>
+
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">Moderation Queue</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.platform_overview.pending_reports} Reports
+                  </strong>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 mt-2">
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {metrics.data.platform_overview.flagged_posts} flagged or hidden posts
+                    </span>
+                  </div>
+                </article>
+              </div>
+            </div>
+          )}
+
+          {metrics.data.ai_usage && (
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-3">AI Provider & Token Usage Telemetry</h2>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">Total AI Invocations</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.ai_usage.requests.toLocaleString()}
+                  </strong>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">Tutor chats, flashcards, study plans</span>
+                </article>
+
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">Total Token Usage</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.ai_usage.total_tokens.toLocaleString()}
+                  </strong>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">Combined prompt & completion tokens</span>
+                </article>
+
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">Prompt Input Tokens</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.ai_usage.input_tokens.toLocaleString()}
+                  </strong>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">Grounded context & query prompts</span>
+                </article>
+
+                <article className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xs">
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">Completion Tokens</p>
+                  <strong className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 block mb-1">
+                    {metrics.data.ai_usage.output_tokens.toLocaleString()}
+                  </strong>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">Synthesized LLM outputs</span>
+                </article>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>
