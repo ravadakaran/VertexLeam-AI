@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem in VertexLearn AI.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: Please use synthetic data. Do not include passwords, tokens, learner data, or signed media URLs.
+  - type: input
+    id: summary
+    attributes:
+      label: What happened?
+      description: A short, clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1. Sign in as a synthetic student…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, Node version, and commit or branch.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove personal data, credentials, JWTs, and signed URLs.
+    validations:
+      required: false
