@@ -10,7 +10,7 @@
     "dev:api": "node --env-file-if-exists=.env backend/src/server.ts",
     "dev:worker": "node --env-file-if-exists=.env backend/src/jobs/worker.ts",
     "dev:web": "vite frontend",
-    "build": "npx --yes vite build frontend",
+    "build": "vite build frontend",
     "typecheck": "tsc -p backend/tsconfig.json && tsc -p frontend/tsconfig.json",
     "db:migrate": "node --env-file-if-exists=.env backend/src/db/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env backend/src/db/seed.ts",
