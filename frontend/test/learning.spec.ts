@@ -6,6 +6,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import pg from 'pg'
+import { createClient } from 'redis'
+
+async function clearRateLimits() {
+  try {
+    const client = createClient({ url: process.env.REDIS_CACHE_URL || 'redis://127.0.0.1:16379' })
+    await client.connect()
+    const keys = await client.keys('vertexlearn:*')
+    if (keys.length > 0) await client.del(keys)
+    await client.quit()
+  } catch {}
+}
 
 let fixture: { id: string; title: string } | undefined
 test.afterEach(async () => {
@@ -27,6 +38,7 @@ test.afterEach(async () => {
 
 test('T-006–010 course, playback, assignment and quiz workflows', async ({ page }) => {
   test.setTimeout(60000)
+  await clearRateLimits()
   if (!['test', 'development'].includes(process.env.APP_ENV ?? '')) throw new Error('Use a disposable demo environment')
   const password = process.env.DEMO_PASSWORD
   if (!password) throw new Error('Seed demo accounts first')

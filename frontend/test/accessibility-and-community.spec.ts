@@ -2,6 +2,17 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
+import { createClient } from 'redis'
+
+async function clearRateLimits() {
+  try {
+    const client = createClient({ url: process.env.REDIS_CACHE_URL || 'redis://127.0.0.1:16379' })
+    await client.connect()
+    const keys = await client.keys('vertexlearn:*')
+    if (keys.length > 0) await client.del(keys)
+    await client.quit()
+  } catch {}
+}
 
 const DSA_COURSE_ID = '00000000-0000-4000-8000-00000000d5a1'
 const run = randomUUID().slice(0, 8)
@@ -115,13 +126,14 @@ async function auditContrastAndLandmarks(page: Page, contextLabel: string, requi
   expect(report, `Accessibility/contrast audit failed on ${contextLabel}:\n${report.join('\n')}`).toEqual([])
 }
 
-test.beforeAll(() => {
+test.beforeAll(async () => {
   if (!['test', 'development'].includes(process.env.APP_ENV ?? '')) {
     throw new Error('Use a disposable demo environment')
   }
   execFileSync(process.execPath, ['--env-file-if-exists=.env', 'backend/src/db/seeders/dsa-demo.ts'], {
     encoding: 'utf8'
   })
+  await clearRateLimits()
 })
 
 test.afterEach(async () => {
@@ -275,12 +287,17 @@ test('T-021, T-022 & T-025 DSA community workflows, notifications, theme, Englis
   await expect(flaggedArticle).toBeHidden()
   await page.getByRole('button', { name: 'Sign out' }).click()
 
+  // Reset rate limits so verification page load has full quota
+  await clearRateLimits()
+
   // Student confirms hidden content is masked cleanly
   await signIn('student', disposableStudentEmail)
   await page.getByRole('link', { name: 'My learning' }).click()
   await page.getByRole('link', { name: 'Data Structures and Algorithms' }).click()
+  await expect(page.getByRole('heading', { name: 'Course leaderboard' })).toBeVisible({ timeout: 15000 })
   const updatedThread = page.locator('article').filter({ hasText: `Trees & Complexity Discussion ${tag}` })
+  await expect(updatedThread.getByRole('button', { name: 'Open thread' })).toBeVisible({ timeout: 10000 })
   await updatedThread.getByRole('button', { name: 'Open thread' }).click()
-  await expect(updatedThread.getByText('Hidden by moderation', { exact: true })).toBeVisible()
-  await expect(updatedThread.getByText('[Hidden by moderation]', { exact: true })).toBeVisible()
+  await expect(updatedThread.getByText('Hidden by moderation', { exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(updatedThread.getByText('[Hidden by moderation]', { exact: true })).toBeVisible({ timeout: 15000 })
 })
