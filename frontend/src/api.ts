@@ -1,11 +1,13 @@
 import { checkSession, useSession } from './auth'
 
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const tokens = useSession.getState().tokens
   const send = (access?: string) => {
     const headers = new Headers(init.headers)
     if (access) headers.set('Authorization', `Bearer ${access}`)
-    return fetch('/api/v1' + path, { ...init, headers })
+    return fetch(API_BASE + '/api/v1' + path, { ...init, headers })
   }
   let response = await send(tokens?.access_token)
   if (response.status === 401 && tokens) {

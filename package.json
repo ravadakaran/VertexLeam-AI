@@ -37,13 +37,14 @@
     "react-router-dom": "7.18.5",
     "redis": "5.12.1",
     "tailwindcss": "4.3.4",
+    "@tailwindcss/vite": "4.3.4",
+    "vite": "7.3.7",
     "yauzl": "3.4.0",
     "zod": "4.6.7",
     "zustand": "5.0.16"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
-    "@tailwindcss/vite": "4.3.4",
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
     "@types/multer": "2.3.0",
@@ -53,7 +54,6 @@
     "@types/react-dom": "18.3.7",
     "@types/yauzl": "3.4.0",
     "supertest": "7.3.1",
-    "typescript": "5.9.3",
-    "vite": "7.3.7"
+    "typescript": "5.9.3"
   }
 }

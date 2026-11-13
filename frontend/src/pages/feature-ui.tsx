@@ -3,9 +3,10 @@ import { api } from '../api'
 
 export const requestKey = () => ({ 'Idempotency-Key': crypto.randomUUID() })
 export const localUrl = (value: string) => {
-  const url = new URL(value, window.location.origin)
+  const base = import.meta.env.VITE_API_BASE_URL || window.location.origin
+  const url = new URL(value, base)
   if (!url.pathname.startsWith('/api/v1/private/')) throw new Error('Invalid file link')
-  return url.pathname + url.search
+  return url.toString()
 }
 
 export function useData<T>(path: string) {
