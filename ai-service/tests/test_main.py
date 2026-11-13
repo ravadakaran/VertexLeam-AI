@@ -249,6 +249,9 @@ class AiServiceOfflineTests(unittest.TestCase):
                     }
                 ]
 
+            async def execute(self, *args):
+                return None
+
             async def close(self):
                 return None
 

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { db, transaction } from '../../db/index.ts'
 import { HttpError, parse, uuid } from '../../http.ts'
 import { authenticate, requireRole } from '../../middleware/auth.ts'
-import { limit } from '../../cache.ts'
+import { limit, cacheGet, cacheSet } from '../../cache.ts'
 import { observeAiOutcome } from '../../utils/metrics.ts'
 import { courseScope, tutorCourseScope, lectureScope, moduleScope, text, keySchema, replay, invalid, conflict } from '../learning/scope.ts'
 import type { Profile } from '../../types.ts'
@@ -234,8 +234,14 @@ ai.get('/ai/jobs/:id',authenticate,requireRole('student','instructor','admin'),a
 ai.post('/ai/lectures/:id/summarize',...student,aiJobsLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id)
   const lecture=await lectureScope(db,req.user!,id,'learner'),token=serviceToken(req.user!,lecture.course_id)
-  const {rows}=await db.query("SELECT c.id,c.content,c.start_seconds,c.page_number,c.source_name,l.id lecture_id,l.title lecture_title FROM ai_chunks c JOIN ai_source_generations g ON g.id=c.generation_id JOIN lectures l ON l.id=c.lecture_id WHERE c.lecture_id=$1 AND g.status='active' ORDER BY c.ordinal",[id])
+  const {rows}=await db.query("SELECT c.id,c.content,c.start_seconds,c.page_number,c.source_name,l.id lecture_id,l.title lecture_title,g.id generation_id FROM ai_chunks c JOIN ai_source_generations g ON g.id=c.generation_id JOIN lectures l ON l.id=c.lecture_id WHERE c.lecture_id=$1 AND g.status='active' ORDER BY c.ordinal",[id])
   if(!rows.length)throw unavailable()
+  const cacheKey=`ai:summary:${id}:${rows[0].generation_id}`
+  const cached=await cacheGet<{summary:string;sources:any[]}>(cacheKey)
+  if(cached){
+    res.set('Cache-Control','private, no-store').json(cached)
+    return
+  }
   const result=await callAi('/v1/summarize',token,{chunks:rows})
   if(typeof result.summary!=='string'||result.summary.length>10000||!Array.isArray(result.sources))throw unavailable()
   const sourceIds=result.sources.map((source:any)=>source.chunk_id)
@@ -243,7 +249,9 @@ ai.post('/ai/lectures/:id/summarize',...student,aiJobsLimit,async(req,res)=>{
   if(sourceRows.length!==new Set(sourceIds).size||!sourceRows.length)throw unavailable()
   let summary=result.summary
   for(const source of sourceRows)summary=summary.replaceAll(source.id,`${source.source_name??source.lecture_title}${source.page_number!==null?` p. ${source.page_number}`:source.start_seconds!==null?` at ${source.start_seconds}s`:''}`)
-  res.set('Cache-Control','private, no-store').json({summary,sources:sourceRows.map((source:any)=>({lecture_id:source.lecture_id,lecture_title:source.lecture_title,source_name:source.source_name,...(source.page_number!==null&&{page_number:source.page_number}),...(source.start_seconds!==null&&{timestamp_seconds:source.start_seconds})}))})
+  const payload={summary,sources:sourceRows.map((source:any)=>({lecture_id:source.lecture_id,lecture_title:source.lecture_title,source_name:source.source_name,...(source.page_number!==null&&{page_number:source.page_number}),...(source.start_seconds!==null&&{timestamp_seconds:source.start_seconds})}))}
+  await cacheSet(cacheKey,payload,86400)
+  res.set('Cache-Control','private, no-store').json(payload)
 })
 ai.post('/ai/modules/:id/flashcards',...student,aiJobsLimit,async(req,res)=>{
   const id=parse(uuid,req.params.id),scope=await moduleScope(db,req.user!,id,'learner'),token=serviceToken(req.user!,scope.id)

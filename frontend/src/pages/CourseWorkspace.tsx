@@ -399,7 +399,7 @@ function AnalyticsPanel({ courseId }: { courseId: string }) {
                     {report.data.lectures.map(lec => (
                       <tr key={lec.lecture_id} className="border-b border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300">
                         <td className="py-2 pr-3 font-medium text-slate-900 dark:text-slate-100">
-                          {lec.title} <span className="text-slate-400 text-[10px]">({formatSeconds(lec.duration_seconds)})</span>
+                          {lec.title} <span className="text-slate-600 dark:text-slate-400 text-[10px]">({formatSeconds(lec.duration_seconds)})</span>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <span className={`px-2 py-0.5 rounded font-semibold text-[11px] ${lec.avg_watch_percent >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
@@ -475,11 +475,11 @@ function AnalyticsPanel({ courseId }: { courseId: string }) {
                           <p className="line-clamp-2 m-0">{q.question_text}</p>
                           <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">{q.quiz_title}</span>
                         </td>
-                        <td className="py-2 px-3 text-center uppercase text-[10px] text-slate-500 font-mono">
+                        <td className="py-2 px-3 text-center uppercase text-[10px] text-slate-600 dark:text-slate-300 font-mono">
                           {q.question_type.replace('_', ' ')}
                         </td>
                         <td className="py-2 px-3 text-center">
-                          {q.total_attempts} <span className="text-slate-400 text-[10px]">({q.correct_attempts} correct)</span>
+                          {q.total_attempts} <span className="text-slate-600 dark:text-slate-400 text-[10px]">({q.correct_attempts} correct)</span>
                         </td>
                         <td className="py-2 px-3 text-center">
                           {q.success_rate !== null ? (
@@ -491,7 +491,7 @@ function AnalyticsPanel({ courseId }: { courseId: string }) {
                               {q.success_rate}%
                             </span>
                           ) : (
-                            <span className="text-slate-400 italic">No attempts</span>
+                            <span className="text-slate-600 dark:text-slate-400 italic">No attempts</span>
                           )}
                         </td>
                         <td className="py-2 pl-3 text-right">
@@ -559,7 +559,7 @@ function AnalyticsPanel({ courseId }: { courseId: string }) {
                       <li key={idx} className="flex items-start gap-2 text-slate-800 dark:text-slate-200">
                         <span className="text-indigo-600 dark:text-indigo-400 font-bold">&bull;</span>
                         <span className="italic line-clamp-1 flex-1">"{rq.content}"</span>
-                        <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                        <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">
                           {new Date(rq.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </li>

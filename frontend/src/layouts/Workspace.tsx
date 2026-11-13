@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { signOut, useSession, type Role } from '../auth'
 import { NotificationsPanel } from '../components/NotificationsPanel'
 import { useT, type TranslationKey } from '../utils/i18n'
 import { useTheme } from '../utils/theme'
+import { PageSkeleton } from '../pages/feature-ui'
 
 export const workspaces = {
   student: { title: 'Student', sections: { catalog: 'Course catalog', learning: 'My learning' } },
@@ -171,7 +172,9 @@ export function Workspace({ role }: { role: Role }) {
         </nav>
 
         <main id="main-content" tabIndex={-1} className="p-8 max-w-5xl">
-          <Outlet />
+          <Suspense fallback={<PageSkeleton />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

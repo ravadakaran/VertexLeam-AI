@@ -93,7 +93,7 @@ analytics.get('/instructor/courses/:id/analytics',...owner,async(req,res)=>{
     LEFT JOIN attempt_answers aa ON aa.quiz_id = uq.quiz_id AND aa.points ? uq.question_id
     GROUP BY uq.quiz_id, uq.quiz_title, uq.question_id, uq.question_text, uq.question_type, uq.max_points
     ORDER BY uq.quiz_title, uq.question_id
-  `, [id])
+  `, [id, from, to])
 
   const formattedQuestions = questionStats.map((q: any) => {
     const successRate = q.total_attempts > 0 ? Math.round((q.correct_attempts * 1000) / q.total_attempts) / 10 : null
