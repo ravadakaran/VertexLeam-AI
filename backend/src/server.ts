@@ -12,7 +12,7 @@ import {
 import { logger } from './utils/logger.ts'
 
 const { port, workerMode, workerPollMs } = getConfig()
-const host = process.env.HOST ?? '127.0.0.1'
+const host = process.env.HOST ?? '0.0.0.0'
 
 cache.connect().catch(() => logger.warn('redis.startup_failed', { target: 'cache' }))
 connectQueue().catch(() => logger.warn('redis.startup_failed', { target: 'queue' }))
@@ -20,10 +20,10 @@ connectQueue().catch(() => logger.warn('redis.startup_failed', { target: 'queue'
 let reconcileTimer: ReturnType<typeof setInterval> | undefined
 if (workerMode !== 'external') {
   setOutboxEnqueueHook(outboxId => {
-    void processOutboxEvent(outboxId)
+    void processOutboxEvent(outboxId).catch(err => logger.warn('outbox.event_error', { err: String(err) }))
   })
   reconcileTimer = setInterval(() => {
-    void reconcilePendingOutbox()
+    void reconcilePendingOutbox().catch(err => logger.warn('outbox.reconcile_error', { err: String(err) }))
   }, workerPollMs)
   reconcileTimer.unref()
 }

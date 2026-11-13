@@ -6,6 +6,7 @@
     "node": "24.x"
   },
   "scripts": {
+    "start": "node backend/src/db/migrate.ts && node backend/src/server.ts",
     "dev:api": "node --env-file-if-exists=.env backend/src/server.ts",
     "dev:worker": "node --env-file-if-exists=.env backend/src/jobs/worker.ts",
     "dev:web": "vite frontend",

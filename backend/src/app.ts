@@ -48,6 +48,8 @@ app.use((req, res, next) => {
   next()
 })
 app.use(express.json({ limit: '2mb' }))
+app.get('/', (_req, res) => res.json({ name: 'VertexLearn-AI API', status: 'ok' }))
+app.head('/', (_req, res) => res.status(200).end())
 app.get('/health/live', (_req, res) => res.json({ status: 'ok' }))
 app.get('/health/ready', async (_req, res) => {
   try {
